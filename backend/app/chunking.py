@@ -1,202 +1,299 @@
 import re
 
 
-def clean_text(text):
-    text = text.replace("\r\n", "\n")
-    text = text.replace("\r", "\n")
+# ============================================================
+# CONFIG
+# ============================================================
 
-    # Normalize spaces
-    text = re.sub(r"[ \t]+", " ", text)
+MAX_CHUNK_CHARS = 1200
+MIN_CHUNK_CHARS = 200
+OVERLAP_CHARS = 150
 
-    # Preserve paragraph boundaries
-    text = re.sub(r"\n{3,}", "\n\n", text)
+
+# ============================================================
+# HEADING DETECTION
+# ============================================================
+
+def looks_like_heading(text: str) -> bool:
+
+    text = text.strip()
+
+    if not text:
+        return False
+
+    # Too long to realistically be a heading
+    if len(text) > 100:
+        return False
+
+    # Usually headings don't end with punctuation
+    if text.endswith((".", ",", ";", ":")):
+        return False
+
+    words = text.split()
+
+    # Very long sentences are not headings
+    if len(words) > 12:
+        return False
+
+    # Common heading-like patterns
+    if text.isupper():
+        return True
+
+    # Title Case
+    if len(words) <= 8:
+        title_words = sum(
+            1
+            for word in words
+            if word and word[0].isupper()
+        )
+
+        if title_words / len(words) >= 0.6:
+            return True
+
+    return False
+
+
+# ============================================================
+# CLEAN TEXT
+# ============================================================
+
+def clean_text(text: str) -> str:
+
+    text = re.sub(
+        r"[ \t]+",
+        " ",
+        text
+    )
+
+    text = re.sub(
+        r"\n{3,}",
+        "\n\n",
+        text
+    )
 
     return text.strip()
 
 
-def split_sentences(text):
-    """
-    Split text into sentences while keeping
-    punctuation attached to the sentence.
-    """
+# ============================================================
+# SPLIT LONG BLOCK
+# ============================================================
+
+def split_long_block(text: str):
 
     sentences = re.split(
         r"(?<=[.!?])\s+",
-        text.strip()
+        text
     )
-
-    return [
-        sentence.strip()
-        for sentence in sentences
-        if sentence.strip()
-    ]
-
-
-def split_long_sentence(sentence, chunk_size):
-    """
-    Last-resort fallback for a sentence that
-    is itself larger than chunk_size.
-    """
-
-    words = sentence.split()
 
     chunks = []
     current = ""
 
-    for word in words:
+    for sentence in sentences:
 
-        candidate = (
-            f"{current} {word}"
-            if current
-            else word
-        )
+        sentence = sentence.strip()
 
-        if len(candidate) <= chunk_size:
+        if not sentence:
+            continue
 
-            current = candidate
+        if (
+            len(current)
+            + len(sentence)
+            + 1
+            <= MAX_CHUNK_CHARS
+        ):
+
+            current = (
+                f"{current} {sentence}"
+                if current
+                else sentence
+            )
 
         else:
 
             if current:
-                chunks.append(current)
+                chunks.append(
+                    current.strip()
+                )
 
-            current = word
+            current = sentence
 
     if current:
-        chunks.append(current)
+        chunks.append(
+            current.strip()
+        )
 
     return chunks
 
 
-def chunk_text(
-    text,
-    chunk_size=1200,
-    overlap_sentences=1
-):
+# ============================================================
+# STRUCTURE-AWARE CHUNKING
+# ============================================================
+
+def chunk_text(text: str):
 
     text = clean_text(text)
 
-    if not text:
-        return []
+    # --------------------------------------------------------
+    # Break document into paragraphs / blocks
+    # --------------------------------------------------------
 
-
-    # --------------------------------------------------
-    # First preserve paragraphs
-    # --------------------------------------------------
-
-    paragraphs = [
-        paragraph.strip()
-        for paragraph in text.split("\n\n")
-        if paragraph.strip()
+    blocks = [
+        block.strip()
+        for block in text.split("\n\n")
+        if block.strip()
     ]
-
-
-    # --------------------------------------------------
-    # Convert paragraphs → sentences
-    # --------------------------------------------------
-
-    sentences = []
-
-    for paragraph in paragraphs:
-
-        paragraph_sentences = split_sentences(
-            paragraph
-        )
-
-        sentences.extend(
-            paragraph_sentences
-        )
-
-
-    # --------------------------------------------------
-    # Build chunks from complete sentences
-    # --------------------------------------------------
 
     chunks = []
 
-    current = []
-    current_length = 0
+    current_section = None
+    current_chunk = ""
 
+    for block in blocks:
 
-    for sentence in sentences:
+        # ----------------------------------------------------
+        # Detect heading
+        # ----------------------------------------------------
 
-        # Handle a sentence that is too large
-        if len(sentence) > chunk_size:
+        if looks_like_heading(block):
 
-            if current:
+            # Flush previous chunk
+            if current_chunk:
 
                 chunks.append(
-                    " ".join(current)
+                    current_chunk.strip()
                 )
 
-                current = []
-                current_length = 0
+                current_chunk = ""
 
+            current_section = block
 
-            long_chunks = split_long_sentence(
-                sentence,
-                chunk_size
-            )
-
-            chunks.extend(
-                long_chunks
-            )
-
+            # Don't immediately create a chunk
+            # containing only the heading.
             continue
 
+        # ----------------------------------------------------
+        # Add section context
+        # ----------------------------------------------------
 
-        extra_length = (
-            len(sentence)
-            if not current
-            else len(sentence) + 1
-        )
+        if current_section:
 
+            if current_chunk:
 
-        # Would this sentence exceed our target?
-        if (
-            current
-            and current_length + extra_length > chunk_size
-        ):
-
-            chunks.append(
-                " ".join(current)
-            )
-
-
-            # Keep a small amount of sentence-level
-            # context instead of arbitrary characters.
-            if overlap_sentences > 0:
-
-                current = current[
-                    -overlap_sentences:
-                ]
-
-                current_length = len(
-                    " ".join(current)
+                candidate = (
+                    f"{current_chunk}\n{block}"
                 )
 
             else:
 
-                current = []
-                current_length = 0
+                candidate = (
+                    f"{current_section}\n{block}"
+                )
 
+        else:
 
-        current.append(sentence)
+            candidate = (
+                f"{current_chunk}\n{block}"
+                if current_chunk
+                else block
+            )
 
-        current_length = len(
-            " ".join(current)
-        )
+        # ----------------------------------------------------
+        # Chunk size check
+        # ----------------------------------------------------
 
+        if len(candidate) <= MAX_CHUNK_CHARS:
 
-    if current:
+            current_chunk = candidate
+
+        else:
+
+            # Save current chunk
+            if current_chunk:
+
+                chunks.append(
+                    current_chunk.strip()
+                )
+
+            # Handle oversized block
+            if len(block) > MAX_CHUNK_CHARS:
+
+                split_chunks = split_long_block(
+                    block
+                )
+
+                for split_chunk in split_chunks:
+
+                    if current_section:
+
+                        chunks.append(
+                            f"{current_section}\n"
+                            f"{split_chunk}"
+                        )
+
+                    else:
+
+                        chunks.append(
+                            split_chunk
+                        )
+
+                current_chunk = ""
+
+            else:
+
+                if current_section:
+
+                    current_chunk = (
+                        f"{current_section}\n"
+                        f"{block}"
+                    )
+
+                else:
+
+                    current_chunk = block
+
+    # --------------------------------------------------------
+    # Final chunk
+    # --------------------------------------------------------
+
+    if current_chunk:
 
         chunks.append(
-            " ".join(current)
+            current_chunk.strip()
         )
 
+    # --------------------------------------------------------
+    # Remove tiny chunks
+    # --------------------------------------------------------
 
-    return [
-        chunk.strip()
-        for chunk in chunks
-        if chunk.strip()
-    ]
+    cleaned_chunks = []
+
+    for chunk in chunks:
+
+        chunk = chunk.strip()
+
+        if len(chunk) >= MIN_CHUNK_CHARS:
+
+            cleaned_chunks.append(chunk)
+
+        elif cleaned_chunks:
+
+            # Merge tiny trailing content
+            merged = (
+                cleaned_chunks[-1]
+                + "\n"
+                + chunk
+            )
+
+            if len(merged) <= MAX_CHUNK_CHARS:
+
+                cleaned_chunks[-1] = merged
+
+            else:
+
+                cleaned_chunks.append(chunk)
+
+        else:
+
+            cleaned_chunks.append(chunk)
+
+    return cleaned_chunks

@@ -5,6 +5,7 @@ import pymupdf
 
 from app.chunking import chunk_text
 from app.embeddings import embed_texts, embed_query
+from app.reranker import rerank
 
 from app.chroma import (
     add_documents,
@@ -302,6 +303,7 @@ def documents():
 
 # ============================================================
 # SEARCH
+# Chroma → Top 10 → Reranker → Top 3
 # ============================================================
 
 @app.post("/search")
@@ -337,7 +339,7 @@ async def search_pdf(
 
 
     # --------------------------------------------------------
-    # Embed query
+    # Generate query embedding
     # --------------------------------------------------------
 
     query_embedding = embed_query(
@@ -351,25 +353,20 @@ async def search_pdf(
 
 
     # --------------------------------------------------------
-    # Search ChromaDB
+    # Initial vector retrieval
+    #
+    # Retrieve more candidates than we finally return.
     # --------------------------------------------------------
 
     results = search(
 
         query_embedding,
 
-        top_k=5,
+        top_k=10,
 
         document_id=document_id
 
     )
-
-
-    # --------------------------------------------------------
-    # Extract results
-    # --------------------------------------------------------
-
-    output = []
 
 
     documents = results.get(
@@ -390,18 +387,45 @@ async def search_pdf(
     )[0]
 
 
+    print(
+        f"Vector search returned "
+        f"{len(documents)} candidates."
+    )
+
+
     # --------------------------------------------------------
-    # Format results
+    # Rerank
     # --------------------------------------------------------
+
+    ranked = rerank(
+
+        query,
+
+        documents,
+
+        top_k=3
+
+    )
+
+
+    print(
+        f"Reranked to "
+        f"{len(ranked)} results."
+    )
+
+
+    # --------------------------------------------------------
+    # Build lookup
+    # --------------------------------------------------------
+
+    document_lookup = {}
+
 
     for i, document in enumerate(
         documents
     ):
 
-        output.append({
-
-            "text":
-                document,
+        document_lookup[document] = {
 
             "distance":
                 distances[i],
@@ -409,11 +433,52 @@ async def search_pdf(
             "metadata":
                 metadatas[i]
 
+        }
+
+
+    # --------------------------------------------------------
+    # Final results
+    # --------------------------------------------------------
+
+    output = []
+
+
+    for document, rerank_score in ranked:
+
+        original = document_lookup.get(
+            document
+        )
+
+
+        if not original:
+
+            continue
+
+
+        output.append({
+
+            "text":
+                document,
+
+            "distance":
+                original["distance"],
+
+            "rerank_score":
+                float(rerank_score),
+
+            "metadata":
+                original["metadata"]
+
         })
 
 
+    # --------------------------------------------------------
+    # Logging
+    # --------------------------------------------------------
+
     print(
-        f"Retrieved {len(output)} results."
+        f"Final results: "
+        f"{len(output)}"
     )
 
 
@@ -421,6 +486,10 @@ async def search_pdf(
         "========== SEARCH COMPLETE ==========\n"
     )
 
+
+    # --------------------------------------------------------
+    # Response
+    # --------------------------------------------------------
 
     return {
 
