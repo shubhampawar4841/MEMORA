@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Nerva</title>
+
+    <style>
+
+        body {
+            font-family: Arial;
+            max-width: 700px;
+            margin: 60px auto;
+            padding: 20px;
+            background: #080A12;
+            color: white;
+        }
+
+        h1 {
+            color: #A78BFA;
+        }
+
+        input,
+        button {
+            padding: 10px;
+            margin: 5px 0;
+        }
+
+        button {
+            background: #8B5CF6;
+            color: white;
+            border: 0;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        input[type="text"] {
+            width: 70%;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #15182A;
+            border-radius: 8px;
+        }
+
+    </style>
+</head>
+
+
+<body>
+
+<h1>Nerva</h1>
+
+<p>PDF → Embeddings → ChromaDB</p>
+
+
+<input
+    type="file"
+    id="pdf"
+    accept=".pdf"
+>
+
+<br>
+
+<button onclick="uploadPDF()">
+    Process PDF
+</button>
+
+
+<p id="status"></p>
+
+
+<hr>
+
+
+<input
+    type="text"
+    id="query"
+    placeholder="Ask something..."
+>
+
+<button onclick="search()">
+    Search
+</button>
+
+
+<div id="results"></div>
+
+
+<script>
+
+const API = "http://localhost:8000";
+
+
+async function uploadPDF() {
+
+    const file =
+        document.getElementById("pdf").files[0];
+
+    if (!file) {
+        alert("Choose a PDF first.");
+        return;
+    }
+
+    const form =
+        new FormData();
+
+    form.append("file", file);
+
+
+    document.getElementById("status").innerText =
+        "Processing PDF...";
+
+
+    const response =
+        await fetch(
+            API + "/upload-pdf",
+            {
+                method: "POST",
+                body: form
+            }
+        );
+
+
+    const data =
+        await response.json();
+
+
+    document.getElementById("status").innerText =
+        `${data.pages} pages → ${data.chunks} chunks → ${data.embedding_dimension}D embeddings`;
+}
+
+
+async function search() {
+
+    const query =
+        document.getElementById("query").value;
+
+    if (!query.trim()) return;
+
+
+    const response =
+        await fetch(
+            API + "/search?query=" +
+            encodeURIComponent(query),
+            {
+                method: "POST"
+            }
+        );
+
+
+    const data =
+        await response.json();
+
+
+    const container =
+        document.getElementById("results");
+
+
+    container.innerHTML = "";
+
+
+    data.results.forEach(
+        (result, index) => {
+
+            container.innerHTML += `
+
+                <div class="result">
+
+                    <b>
+                        Result ${index + 1}
+                    </b>
+
+                    <p>
+                        ${result.text}
+                    </p>
+
+                    <small>
+                        Page:
+                        ${result.metadata.page}
+                        |
+                        Distance:
+                        ${result.distance.toFixed(4)}
+                    </small>
+
+                </div>
+
+            `;
+
+        }
+    );
+}
+
+</script>
+
+</body>
+
+</html>
