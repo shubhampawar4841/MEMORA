@@ -5,137 +5,51 @@ def clean_text(text):
     text = text.replace("\r\n", "\n")
     text = text.replace("\r", "\n")
 
-    # Remove excessive spaces while preserving newlines
+    # Normalize spaces
     text = re.sub(r"[ \t]+", " ", text)
 
-    # Keep paragraph boundaries
+    # Preserve paragraph boundaries
     text = re.sub(r"\n{3,}", "\n\n", text)
 
     return text.strip()
 
 
-def split_recursive(
-    text,
-    chunk_size,
-    overlap
-):
+def split_sentences(text):
     """
-    Recursively split oversized text.
-
-    Priority:
-        paragraph
-        ↓
-        line
-        ↓
-        sentence
-        ↓
-        word
-        ↓
-        character
+    Split text into sentences while keeping
+    punctuation attached to the sentence.
     """
 
-    text = text.strip()
+    sentences = re.split(
+        r"(?<=[.!?])\s+",
+        text.strip()
+    )
 
-    if not text:
-        return []
-
-    if len(text) <= chunk_size:
-        return [text]
-
-
-    separators = [
-        "\n\n",
-        "\n",
-        ". ",
-        "? ",
-        "! ",
-        "; ",
-        ", ",
-        " ",
-        ""
+    return [
+        sentence.strip()
+        for sentence in sentences
+        if sentence.strip()
     ]
 
 
-    # Find the best separator that actually
-    # exists inside the text.
-    separator = ""
+def split_long_sentence(sentence, chunk_size):
+    """
+    Last-resort fallback for a sentence that
+    is itself larger than chunk_size.
+    """
 
-    for candidate in separators:
-
-        if candidate == "":
-            separator = candidate
-            break
-
-        if candidate in text:
-
-            separator = candidate
-            break
-
-
-    # --------------------------------------------------
-    # Character fallback
-    # --------------------------------------------------
-
-    if separator == "":
-
-        chunks = []
-
-        start = 0
-
-        while start < len(text):
-
-            end = min(
-                start + chunk_size,
-                len(text)
-            )
-
-            chunk = text[
-                start:end
-            ].strip()
-
-            if chunk:
-                chunks.append(chunk)
-
-            if end >= len(text):
-                break
-
-            start = max(
-                0,
-                end - overlap
-            )
-
-        return chunks
-
-
-    # --------------------------------------------------
-    # Split using selected separator
-    # --------------------------------------------------
-
-    pieces = text.split(separator)
-
-    pieces = [
-        piece.strip()
-        for piece in pieces
-        if piece.strip()
-    ]
-
-
-    if not pieces:
-        return [text]
-
+    words = sentence.split()
 
     chunks = []
     current = ""
 
-
-    for piece in pieces:
+    for word in words:
 
         candidate = (
-            f"{current}{separator}{piece}"
+            f"{current} {word}"
             if current
-            else piece
+            else word
         )
-
 
         if len(candidate) <= chunk_size:
 
@@ -144,79 +58,20 @@ def split_recursive(
         else:
 
             if current:
+                chunks.append(current)
 
-                chunks.append(
-                    current.strip()
-                )
-
-
-            # If this individual piece is
-            # still too large, recursively
-            # split it using a smaller separator.
-
-            if len(piece) > chunk_size:
-
-                smaller_chunks = split_recursive(
-                    piece,
-                    chunk_size,
-                    overlap
-                )
-
-                chunks.extend(
-                    smaller_chunks
-                )
-
-                current = ""
-
-            else:
-
-                current = piece
-
+            current = word
 
     if current:
+        chunks.append(current)
 
-        chunks.append(
-            current.strip()
-        )
-
-
-    # --------------------------------------------------
-    # Apply overlap between resulting chunks
-    # --------------------------------------------------
-
-    if overlap <= 0 or len(chunks) <= 1:
-        return chunks
-
-
-    overlapped = []
-
-    for i, chunk in enumerate(chunks):
-
-        if i == 0:
-
-            overlapped.append(chunk)
-
-            continue
-
-
-        previous = chunks[i - 1]
-
-        overlap_text = previous[
-            -overlap:
-        ]
-
-        overlapped.append(
-            f"{overlap_text} {chunk}"
-        )
-
-
-    return overlapped
+    return chunks
 
 
 def chunk_text(
     text,
     chunk_size=1200,
-    overlap=150
+    overlap_sentences=1
 ):
 
     text = clean_text(text)
@@ -225,8 +80,123 @@ def chunk_text(
         return []
 
 
-    return split_recursive(
-        text,
-        chunk_size,
-        overlap
-    )
+    # --------------------------------------------------
+    # First preserve paragraphs
+    # --------------------------------------------------
+
+    paragraphs = [
+        paragraph.strip()
+        for paragraph in text.split("\n\n")
+        if paragraph.strip()
+    ]
+
+
+    # --------------------------------------------------
+    # Convert paragraphs → sentences
+    # --------------------------------------------------
+
+    sentences = []
+
+    for paragraph in paragraphs:
+
+        paragraph_sentences = split_sentences(
+            paragraph
+        )
+
+        sentences.extend(
+            paragraph_sentences
+        )
+
+
+    # --------------------------------------------------
+    # Build chunks from complete sentences
+    # --------------------------------------------------
+
+    chunks = []
+
+    current = []
+    current_length = 0
+
+
+    for sentence in sentences:
+
+        # Handle a sentence that is too large
+        if len(sentence) > chunk_size:
+
+            if current:
+
+                chunks.append(
+                    " ".join(current)
+                )
+
+                current = []
+                current_length = 0
+
+
+            long_chunks = split_long_sentence(
+                sentence,
+                chunk_size
+            )
+
+            chunks.extend(
+                long_chunks
+            )
+
+            continue
+
+
+        extra_length = (
+            len(sentence)
+            if not current
+            else len(sentence) + 1
+        )
+
+
+        # Would this sentence exceed our target?
+        if (
+            current
+            and current_length + extra_length > chunk_size
+        ):
+
+            chunks.append(
+                " ".join(current)
+            )
+
+
+            # Keep a small amount of sentence-level
+            # context instead of arbitrary characters.
+            if overlap_sentences > 0:
+
+                current = current[
+                    -overlap_sentences:
+                ]
+
+                current_length = len(
+                    " ".join(current)
+                )
+
+            else:
+
+                current = []
+                current_length = 0
+
+
+        current.append(sentence)
+
+        current_length = len(
+            " ".join(current)
+        )
+
+
+    if current:
+
+        chunks.append(
+            " ".join(current)
+        )
+
+
+    return [
+        chunk.strip()
+        for chunk in chunks
+        if chunk.strip()
+    ]

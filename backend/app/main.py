@@ -5,7 +5,12 @@ import pymupdf
 
 from app.chunking import chunk_text
 from app.embeddings import embed_texts, embed_query
-from app.chroma import add_documents, search
+
+from app.chroma import (
+    add_documents,
+    search,
+    list_documents
+)
 
 
 app = FastAPI()
@@ -36,7 +41,8 @@ def home():
 
 
 # ============================================================
-# PDF UPLOAD + CHUNKING + EMBEDDING
+# UPLOAD PDF
+# PDF → TEXT → CHUNKS → EMBEDDINGS → CHROMADB
 # ============================================================
 
 @app.post("/upload-pdf")
@@ -96,9 +102,11 @@ async def upload_pdf(
 
             pages.append({
 
-                "text": text,
+                "text":
+                    text,
 
-                "page": page_number
+                "page":
+                    page_number
 
             })
 
@@ -117,7 +125,7 @@ async def upload_pdf(
 
 
     # --------------------------------------------------------
-    # Recursive chunking
+    # Chunking
     # --------------------------------------------------------
 
     chunks = []
@@ -225,7 +233,13 @@ async def upload_pdf(
 
 
     print(
-        f"Stored {stored} chunks."
+        f"Stored {stored['chunks']} chunks."
+    )
+
+
+    print(
+        f"Document ID: "
+        f"{stored['document_id']}"
     )
 
 
@@ -243,14 +257,45 @@ async def upload_pdf(
         "filename":
             file.filename,
 
+        "document_id":
+            stored["document_id"],
+
         "pages":
             len(pages),
 
         "chunks":
-            stored,
+            stored["chunks"],
 
         "embedding_dimension":
             embedding_dimension
+
+    }
+
+
+# ============================================================
+# LIST DOCUMENTS
+# ============================================================
+
+@app.get("/documents")
+def documents():
+
+    print(
+        "\n========== DOCUMENTS =========="
+    )
+
+
+    documents = list_documents()
+
+
+    print(
+        f"Found {len(documents)} documents."
+    )
+
+
+    return {
+
+        "documents":
+            documents
 
     }
 
@@ -261,7 +306,11 @@ async def upload_pdf(
 
 @app.post("/search")
 async def search_pdf(
-    query: str
+
+    query: str,
+
+    document_id: str | None = None
+
 ):
 
     print(
@@ -272,6 +321,19 @@ async def search_pdf(
     print(
         f"Query: {query}"
     )
+
+
+    if document_id:
+
+        print(
+            f"Document ID: {document_id}"
+        )
+
+    else:
+
+        print(
+            "Searching across all documents."
+        )
 
 
     # --------------------------------------------------------
@@ -296,13 +358,15 @@ async def search_pdf(
 
         query_embedding,
 
-        top_k=5
+        top_k=5,
+
+        document_id=document_id
 
     )
 
 
     # --------------------------------------------------------
-    # Format results
+    # Extract results
     # --------------------------------------------------------
 
     output = []
@@ -325,6 +389,10 @@ async def search_pdf(
         [[]]
     )[0]
 
+
+    # --------------------------------------------------------
+    # Format results
+    # --------------------------------------------------------
 
     for i, document in enumerate(
         documents
@@ -358,6 +426,9 @@ async def search_pdf(
 
         "query":
             query,
+
+        "document_id":
+            document_id,
 
         "results":
             output
