@@ -2,197 +2,698 @@
 <html>
 
 <head>
+
     <title>Nerva</title>
 
     <style>
 
-        body {
-            font-family: Arial;
-            max-width: 700px;
-            margin: 60px auto;
-            padding: 20px;
-            background: #080A12;
-            color: white;
+        * {
+            box-sizing: border-box;
         }
 
-        h1 {
-            color: #A78BFA;
+        body {
+
+            font-family: Arial, sans-serif;
+
+            max-width: 800px;
+
+            margin: 60px auto;
+
+            padding: 20px;
+
+            background: #080A12;
+
+            color: white;
+
         }
+
+
+        h1 {
+
+            color: #A78BFA;
+
+            margin-bottom: 5px;
+
+        }
+
+
+        .subtitle {
+
+            color: #9CA3AF;
+
+            margin-bottom: 30px;
+
+        }
+
 
         input,
         button {
-            padding: 10px;
+
+            padding: 11px;
+
             margin: 5px 0;
+
         }
 
-        button {
-            background: #8B5CF6;
-            color: white;
-            border: 0;
-            border-radius: 6px;
-            cursor: pointer;
-        }
 
         input[type="text"] {
+
             width: 70%;
+
+            background: #111421;
+
+            border: 1px solid #303448;
+
+            color: white;
+
+            border-radius: 6px;
+
         }
 
-        .result {
+
+        input[type="file"] {
+
+            margin-bottom: 10px;
+
+        }
+
+
+        button {
+
+            background: #8B5CF6;
+
+            color: white;
+
+            border: 0;
+
+            border-radius: 6px;
+
+            cursor: pointer;
+
+            font-weight: bold;
+
+        }
+
+
+        button:hover {
+
+            background: #7C3AED;
+
+        }
+
+
+        .section {
+
+            margin-top: 25px;
+
+            padding: 20px;
+
+            background: #10121D;
+
+            border-radius: 10px;
+
+            border: 1px solid #24273A;
+
+        }
+
+
+        .status {
+
+            color: #C4B5FD;
+
+            margin-top: 10px;
+
+        }
+
+
+        .answer {
+
             margin-top: 20px;
-            padding: 15px;
-            background: #15182A;
+
+            padding: 20px;
+
+            background: #17142A;
+
+            border-left: 4px solid #8B5CF6;
+
             border-radius: 8px;
+
+            line-height: 1.6;
+
+        }
+
+
+        .result {
+
+            margin-top: 15px;
+
+            padding: 15px;
+
+            background: #15182A;
+
+            border-radius: 8px;
+
+            border: 1px solid #25283B;
+
+        }
+
+
+        .result b {
+
+            color: #A78BFA;
+
+        }
+
+
+        .source {
+
+            margin-top: 10px;
+
+            color: #9CA3AF;
+
+            font-size: 13px;
+
+        }
+
+
+        hr {
+
+            border: 0;
+
+            border-top: 1px solid #25283B;
+
+            margin: 30px 0;
+
+        }
+
+
+        .loading {
+
+            color: #C4B5FD;
+
         }
 
     </style>
+
 </head>
 
 
 <body>
 
+
 <h1>Nerva</h1>
 
-<p>PDF → Embeddings → ChromaDB</p>
+<p class="subtitle">
+    PDF → Embeddings → ChromaDB → Reranker → Groq
+</p>
 
 
-<input
-    type="file"
-    id="pdf"
-    accept=".pdf"
->
+<!-- ===================================================== -->
+<!-- UPLOAD -->
+<!-- ===================================================== -->
 
-<br>
+<div class="section">
 
-<button onclick="uploadPDF()">
-    Process PDF
-</button>
+    <h3>Upload PDF</h3>
 
 
-<p id="status"></p>
+    <input
+        type="file"
+        id="pdf"
+        accept=".pdf"
+    >
+
+
+    <br>
+
+
+    <button onclick="uploadPDF()">
+        Process PDF
+    </button>
+
+
+    <p
+        id="status"
+        class="status"
+    ></p>
+
+</div>
 
 
 <hr>
 
 
-<input
-    type="text"
-    id="query"
-    placeholder="Ask something..."
->
+<!-- ===================================================== -->
+<!-- ASK -->
+<!-- ===================================================== -->
 
-<button onclick="search()">
-    Search
-</button>
+<div class="section">
+
+    <h3>Ask Nerva</h3>
 
 
-<div id="results"></div>
+    <input
+        type="text"
+        id="query"
+        placeholder="Ask something about your documents..."
+    >
+
+
+    <button onclick="askNerva()">
+        Ask
+    </button>
+
+
+    <div id="answer"></div>
+
+</div>
+
+
+<hr>
+
+
+<!-- ===================================================== -->
+<!-- RAW SEARCH -->
+<!-- ===================================================== -->
+
+<div class="section">
+
+    <h3>Retrieval Debug</h3>
+
+    <p class="subtitle">
+        See the chunks returned by vector search + reranking.
+    </p>
+
+
+    <button onclick="searchDocuments()">
+        Search Chunks
+    </button>
+
+
+    <div id="results"></div>
+
+</div>
 
 
 <script>
 
+
 const API = "http://localhost:8000";
 
 
+// =========================================================
+// UPLOAD PDF
+// =========================================================
+
 async function uploadPDF() {
+
 
     const file =
         document.getElementById("pdf").files[0];
 
+
     if (!file) {
-        alert("Choose a PDF first.");
+
+        alert(
+            "Choose a PDF first."
+        );
+
         return;
+
     }
+
 
     const form =
         new FormData();
 
-    form.append("file", file);
+
+    form.append(
+        "file",
+        file
+    );
 
 
-    document.getElementById("status").innerText =
+    const status =
+        document.getElementById(
+            "status"
+        );
+
+
+    status.innerText =
         "Processing PDF...";
 
 
-    const response =
-        await fetch(
-            API + "/upload-pdf",
-            {
-                method: "POST",
-                body: form
-            }
-        );
+    try {
 
 
-    const data =
-        await response.json();
+        const response =
+            await fetch(
+
+                API + "/upload-pdf",
+
+                {
+                    method: "POST",
+                    body: form
+                }
+
+            );
 
 
-    document.getElementById("status").innerText =
-        `${data.pages} pages → ${data.chunks} chunks → ${data.embedding_dimension}D embeddings`;
+        const data =
+            await response.json();
+
+
+        if (data.error) {
+
+            status.innerText =
+                data.error;
+
+            return;
+
+        }
+
+
+        status.innerText =
+
+            `${data.filename} → ` +
+
+            `${data.pages} pages → ` +
+
+            `${data.chunks} chunks → ` +
+
+            `${data.embedding_dimension}D embeddings`;
+
+
+    }
+
+    catch (error) {
+
+        status.innerText =
+            "Upload failed.";
+
+        console.error(error);
+
+    }
+
 }
 
 
-async function search() {
+// =========================================================
+// ASK NERVA
+// =========================================================
+
+async function askNerva() {
+
 
     const query =
-        document.getElementById("query").value;
+        document
+            .getElementById("query")
+            .value;
 
-    if (!query.trim()) return;
+
+    if (!query.trim()) {
+
+        alert(
+            "Enter a question first."
+        );
+
+        return;
+
+    }
 
 
-    const response =
-        await fetch(
-            API + "/search?query=" +
-            encodeURIComponent(query),
-            {
-                method: "POST"
-            }
+    const answerContainer =
+        document.getElementById(
+            "answer"
         );
 
 
-    const data =
-        await response.json();
+    answerContainer.innerHTML =
+
+        `<p class="loading">
+            Nerva is thinking...
+        </p>`;
+
+
+    try {
+
+
+        const response =
+            await fetch(
+
+                API +
+                "/ask?query=" +
+                encodeURIComponent(query),
+
+                {
+                    method: "POST"
+                }
+
+            );
+
+
+        const data =
+            await response.json();
+
+
+        let sourcesHTML = "";
+
+
+        if (
+            data.sources &&
+            data.sources.length > 0
+        ) {
+
+
+            sourcesHTML =
+                "<div class='source'><b>Sources:</b><br>";
+
+
+            data.sources.forEach(
+                source => {
+
+                    sourcesHTML +=
+
+                        `${source.source}` +
+
+                        ` — Page ${source.page}` +
+
+                        ` — Chunk ${source.chunk_index}` +
+
+                        "<br>";
+
+                }
+            );
+
+
+            sourcesHTML +=
+                "</div>";
+
+        }
+
+
+        answerContainer.innerHTML =
+
+            `<div class="answer">
+
+                <b>Answer</b>
+
+                <p>
+                    ${escapeHTML(data.answer)}
+                </p>
+
+                ${sourcesHTML}
+
+            </div>`;
+
+
+    }
+
+    catch (error) {
+
+        answerContainer.innerHTML =
+
+            `<div class="answer">
+                Failed to contact Nerva.
+            </div>`;
+
+        console.error(error);
+
+    }
+
+}
+
+
+// =========================================================
+// RAW SEARCH
+// =========================================================
+
+async function searchDocuments() {
+
+
+    const query =
+        document
+            .getElementById("query")
+            .value;
+
+
+    if (!query.trim()) {
+
+        alert(
+            "Enter a question first."
+        );
+
+        return;
+
+    }
 
 
     const container =
-        document.getElementById("results");
+        document.getElementById(
+            "results"
+        );
 
 
-    container.innerHTML = "";
+    container.innerHTML =
+        "<p class='loading'>Searching...</p>";
 
 
-    data.results.forEach(
-        (result, index) => {
+    try {
 
-            container.innerHTML += `
 
-                <div class="result">
+        const response =
+            await fetch(
 
-                    <b>
-                        Result ${index + 1}
-                    </b>
+                API +
+                "/search?query=" +
+                encodeURIComponent(query),
 
-                    <p>
-                        ${result.text}
-                    </p>
+                {
+                    method: "POST"
+                }
 
-                    <small>
-                        Page:
-                        ${result.metadata.page}
-                        |
-                        Distance:
-                        ${result.distance.toFixed(4)}
-                    </small>
+            );
 
-                </div>
 
-            `;
+        const data =
+            await response.json();
 
-        }
-    );
+
+        container.innerHTML = "";
+
+
+        data.results.forEach(
+
+            (result, index) => {
+
+
+                const metadata =
+                    result.metadata;
+
+
+                container.innerHTML +=
+
+                    `<div class="result">
+
+                        <b>
+                            Result ${index + 1}
+                        </b>
+
+                        <p>
+                            ${escapeHTML(
+                                result.text
+                            )}
+                        </p>
+
+                        <div class="source">
+
+                            Page:
+                            ${metadata.page}
+
+                            |
+
+                            Distance:
+                            ${Number(
+                                result.distance
+                            ).toFixed(4)}
+
+                            |
+
+                            Rerank:
+                            ${Number(
+                                result.rerank_score
+                            ).toFixed(6)}
+
+                        </div>
+
+                    </div>`;
+
+            }
+
+        );
+
+
+    }
+
+    catch (error) {
+
+        container.innerHTML =
+            "<p>Search failed.</p>";
+
+        console.error(error);
+
+    }
+
 }
 
+
+// =========================================================
+// HTML ESCAPE
+// =========================================================
+
+function escapeHTML(text) {
+
+    const div =
+        document.createElement(
+            "div"
+        );
+
+
+    div.textContent =
+        text;
+
+
+    return div.innerHTML;
+
+}
+
+
+// =========================================================
+// ENTER KEY
+// =========================================================
+
+document
+    .getElementById("query")
+    .addEventListener(
+
+        "keydown",
+
+        function(event) {
+
+            if (
+                event.key === "Enter"
+            ) {
+
+                askNerva();
+
+            }
+
+        }
+
+    );
+
 </script>
+
 
 </body>
 

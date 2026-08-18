@@ -6,6 +6,7 @@ import pymupdf
 from app.chunking import chunk_text
 from app.embeddings import embed_texts, embed_query
 from app.reranker import rerank
+from app.generation import generate_answer
 
 from app.chroma import (
     add_documents,
@@ -87,7 +88,6 @@ async def upload_pdf(
 
     pages = []
 
-
     for page_number, page in enumerate(
         doc,
         start=1
@@ -98,17 +98,11 @@ async def upload_pdf(
             sort=True
         ).strip()
 
-
         if text:
 
             pages.append({
-
-                "text":
-                    text,
-
-                "page":
-                    page_number
-
+                "text": text,
+                "page": page_number
             })
 
 
@@ -130,7 +124,6 @@ async def upload_pdf(
     # --------------------------------------------------------
 
     chunks = []
-
     metadata = []
 
 
@@ -157,7 +150,6 @@ async def upload_pdf(
             chunks.append(
                 chunk
             )
-
 
             metadata.append({
 
@@ -303,7 +295,10 @@ def documents():
 
 # ============================================================
 # SEARCH
+#
 # Chroma → Top 10 → Reranker → Top 3
+#
+# This endpoint is mainly for debugging the retrieval layer.
 # ============================================================
 
 @app.post("/search")
@@ -354,8 +349,6 @@ async def search_pdf(
 
     # --------------------------------------------------------
     # Initial vector retrieval
-    #
-    # Retrieve more candidates than we finally return.
     # --------------------------------------------------------
 
     results = search(
@@ -391,6 +384,22 @@ async def search_pdf(
         f"Vector search returned "
         f"{len(documents)} candidates."
     )
+
+
+    if not documents:
+
+        return {
+
+            "query":
+                query,
+
+            "document_id":
+                document_id,
+
+            "results":
+                []
+
+        }
 
 
     # --------------------------------------------------------
@@ -451,7 +460,6 @@ async def search_pdf(
 
 
         if not original:
-
             continue
 
 
@@ -472,10 +480,6 @@ async def search_pdf(
         })
 
 
-    # --------------------------------------------------------
-    # Logging
-    # --------------------------------------------------------
-
     print(
         f"Final results: "
         f"{len(output)}"
@@ -484,6 +488,278 @@ async def search_pdf(
 
     print(
         "========== SEARCH COMPLETE ==========\n"
+    )
+
+
+    return {
+
+        "query":
+            query,
+
+        "document_id":
+            document_id,
+
+        "results":
+            output
+
+    }
+
+
+# ============================================================
+# ASK
+#
+# Complete RAG pipeline:
+#
+# Query
+#   ↓
+# Embedding
+#   ↓
+# Chroma Top 10
+#   ↓
+# Reranker Top 3
+#   ↓
+# Context
+#   ↓
+# Groq
+#   ↓
+# Answer
+# ============================================================
+
+@app.post("/ask")
+async def ask(
+
+    query: str,
+
+    document_id: str | None = None
+
+):
+
+    print(
+        "\n========== ASK =========="
+    )
+
+
+    print(
+        f"Question: {query}"
+    )
+
+
+    if document_id:
+
+        print(
+            f"Document ID: {document_id}"
+        )
+
+    else:
+
+        print(
+            "Searching across all documents."
+        )
+
+
+    # --------------------------------------------------------
+    # Query embedding
+    # --------------------------------------------------------
+
+    query_embedding = embed_query(
+        query
+    )
+
+
+    print(
+        "Query embedding generated."
+    )
+
+
+    # --------------------------------------------------------
+    # Vector retrieval
+    # --------------------------------------------------------
+
+    results = search(
+
+        query_embedding,
+
+        top_k=10,
+
+        document_id=document_id
+
+    )
+
+
+    documents = results.get(
+        "documents",
+        [[]]
+    )[0]
+
+
+    distances = results.get(
+        "distances",
+        [[]]
+    )[0]
+
+
+    metadatas = results.get(
+        "metadatas",
+        [[]]
+    )[0]
+
+
+    print(
+        f"Retrieved "
+        f"{len(documents)} candidates."
+    )
+
+
+    if not documents:
+
+        return {
+
+            "query":
+                query,
+
+            "document_id":
+                document_id,
+
+            "answer":
+                "I don't have enough information "
+                "in the provided documents.",
+
+            "sources":
+                []
+
+        }
+
+
+    # --------------------------------------------------------
+    # Reranking
+    # --------------------------------------------------------
+
+    ranked = rerank(
+
+        query,
+
+        documents,
+
+        top_k=3
+
+    )
+
+
+    print(
+        f"Reranked to "
+        f"{len(ranked)} chunks."
+    )
+
+
+    # --------------------------------------------------------
+    # Build lookup
+    # --------------------------------------------------------
+
+    document_lookup = {}
+
+
+    for i, document in enumerate(
+        documents
+    ):
+
+        document_lookup[document] = {
+
+            "distance":
+                distances[i],
+
+            "metadata":
+                metadatas[i]
+
+        }
+
+
+    # --------------------------------------------------------
+    # Build context
+    # --------------------------------------------------------
+
+    context_parts = []
+
+    sources = []
+
+
+    for document, rerank_score in ranked:
+
+        original = document_lookup.get(
+            document
+        )
+
+
+        if not original:
+            continue
+
+
+        metadata = original["metadata"]
+
+
+        context_parts.append(
+            document
+        )
+
+
+        sources.append({
+
+            "source":
+                metadata.get("source"),
+
+            "page":
+                metadata.get("page"),
+
+            "chunk_index":
+                metadata.get("chunk_index"),
+
+            "distance":
+                float(
+                    original["distance"]
+                ),
+
+            "rerank_score":
+                float(
+                    rerank_score
+                )
+
+        })
+
+
+    context = "\n\n---\n\n".join(
+        context_parts
+    )
+
+
+    print(
+        "Context prepared."
+    )
+
+
+    # --------------------------------------------------------
+    # Generate answer with Groq
+    # --------------------------------------------------------
+
+    print(
+        "Sending context to Groq..."
+    )
+
+
+    answer = generate_answer(
+
+        query,
+
+        context
+
+    )
+
+
+    print(
+        "Answer generated."
+    )
+
+
+    print(
+        "========== ASK COMPLETE ==========\n"
     )
 
 
@@ -499,7 +775,10 @@ async def search_pdf(
         "document_id":
             document_id,
 
-        "results":
-            output
+        "answer":
+            answer,
+
+        "sources":
+            sources
 
     }
