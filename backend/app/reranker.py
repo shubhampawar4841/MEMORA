@@ -3,7 +3,6 @@ from sentence_transformers import CrossEncoder
 
 MODEL_NAME = "BAAI/bge-reranker-v2-m3"
 
-
 print("Loading reranker...")
 
 reranker = CrossEncoder(
@@ -16,7 +15,8 @@ print("Reranker loaded.")
 def rerank(
     query,
     documents,
-    top_k=3
+    top_k=5,
+    score_margin=0.25
 ):
 
     if not documents:
@@ -33,8 +33,24 @@ def rerank(
 
     ranked = sorted(
         zip(documents, scores),
-        key=lambda x: float(x[1]),
+        key=lambda x: x[1],
         reverse=True
     )
 
-    return ranked[:top_k]
+    # --------------------------------------------------------
+    # Keep the strongest result.
+    # --------------------------------------------------------
+
+    best_score = float(ranked[0][1])
+
+    filtered = [
+        item
+        for item in ranked
+        if best_score - float(item[1]) <= score_margin
+    ]
+
+    # --------------------------------------------------------
+    # Limit final number of chunks.
+    # --------------------------------------------------------
+
+    return filtered[:top_k]

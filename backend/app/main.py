@@ -44,7 +44,16 @@ def home():
 
 # ============================================================
 # UPLOAD PDF
-# PDF → TEXT → CHUNKS → EMBEDDINGS → CHROMADB
+#
+# PDF
+#   ↓
+# Text extraction
+#   ↓
+# Chunking
+#   ↓
+# Embeddings
+#   ↓
+# ChromaDB
 # ============================================================
 
 @app.post("/upload-pdf")
@@ -150,6 +159,7 @@ async def upload_pdf(
             chunks.append(
                 chunk
             )
+
 
             metadata.append({
 
@@ -296,9 +306,15 @@ def documents():
 # ============================================================
 # SEARCH
 #
-# Chroma → Top 10 → Reranker → Top 3
+# Chroma
+#   ↓
+# Top 10
+#   ↓
+# Reranker
+#   ↓
+# Top 5
 #
-# This endpoint is mainly for debugging the retrieval layer.
+# This endpoint is useful for debugging retrieval.
 # ============================================================
 
 @app.post("/search")
@@ -412,7 +428,9 @@ async def search_pdf(
 
         documents,
 
-        top_k=3
+        top_k=5,
+
+        score_margin=0.25
 
     )
 
@@ -512,11 +530,13 @@ async def search_pdf(
 #
 # Query
 #   ↓
-# Embedding
+# Query Embedding
 #   ↓
 # Chroma Top 10
 #   ↓
-# Reranker Top 3
+# Reranker
+#   ↓
+# Top 3
 #   ↓
 # Context
 #   ↓
@@ -640,7 +660,9 @@ async def ask(
 
         documents,
 
-        top_k=3
+        top_k=3,
+
+        score_margin=0.25
 
     )
 
