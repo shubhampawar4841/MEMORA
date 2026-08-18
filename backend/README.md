@@ -48,3 +48,19 @@ ChromaDB data is stored locally under `data/chroma/` (no separate vector DB serv
 - `POST /upload-pdf` — upload and index a PDF
 - `POST /search` — retrieve + rerank chunks
 - `POST /ask` — full RAG answer with sources
+
+## Backend layout
+
+```text
+app/
+  main.py                 # FastAPI routes
+  config.py               # settings
+  chunking.py             # PDF chunking
+  embeddings/qwen.py      # Qwen embeddings
+  reranking/cross_encoder.py
+  vectorstore/chroma.py   # ChromaDB
+  services/
+    ingestion.py          # PDF → Chroma
+    retrieval.py          # shared search/ask retrieval
+    generation.py         # Groq answers
+```

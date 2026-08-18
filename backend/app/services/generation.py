@@ -2,24 +2,16 @@ from groq import Groq
 
 from app.config import GROQ_API_KEY, GROQ_MODEL_NAME
 
-
 if not GROQ_API_KEY:
     raise RuntimeError(
         "GROQ_API_KEY is missing. "
         "Create a .env file in the backend directory."
     )
 
-
-client = Groq(
-    api_key=GROQ_API_KEY
-)
+client = Groq(api_key=GROQ_API_KEY)
 
 
-def generate_answer(
-    query: str,
-    context: str
-):
-
+def generate_answer(query: str, context: str):
     prompt = f"""
 You are Nerva, a document question-answering assistant.
 
@@ -42,31 +34,22 @@ Question:
 Answer:
 """
 
-
     response = client.chat.completions.create(
-
         model=GROQ_MODEL_NAME,
-
         messages=[
-
             {
                 "role": "system",
-                "content":
+                "content": (
                     "Answer questions using only the supplied document context."
+                ),
             },
-
             {
                 "role": "user",
-                "content": prompt
-            }
-
+                "content": prompt,
+            },
         ],
-
         temperature=0.1,
-
-        max_tokens=500
-
+        max_tokens=500,
     )
-
 
     return response.choices[0].message.content.strip()
