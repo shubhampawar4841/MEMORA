@@ -1,10 +1,8 @@
 from sentence_transformers import SentenceTransformer
 
+from app.config import EMBEDDING_MODEL_NAME
 
-MODEL_NAME = "Qwen/Qwen3-Embedding-0.6B"
-
-
-model = SentenceTransformer(MODEL_NAME)
+model = SentenceTransformer(EMBEDDING_MODEL_NAME)
 
 
 def embed_texts(texts):

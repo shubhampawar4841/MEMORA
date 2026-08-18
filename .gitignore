@@ -5,4 +5,12 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
-/backend/data
+
+# Backend vector store
+/backend/data/
+backend/.venv/
+
+# Frontend
+client/node_modules/
+client/.next/
+client/.env*.local

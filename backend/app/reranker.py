@@ -1,12 +1,15 @@
 from sentence_transformers import CrossEncoder
 
-
-MODEL_NAME = "BAAI/bge-reranker-v2-m3"
+from app.config import (
+    RERANKER_MODEL_NAME,
+    RERANK_SCORE_MARGIN,
+    SEARCH_RERANK_TOP_K,
+)
 
 print("Loading reranker...")
 
 reranker = CrossEncoder(
-    MODEL_NAME
+    RERANKER_MODEL_NAME
 )
 
 print("Reranker loaded.")
@@ -15,8 +18,8 @@ print("Reranker loaded.")
 def rerank(
     query,
     documents,
-    top_k=5,
-    score_margin=0.25
+    top_k=SEARCH_RERANK_TOP_K,
+    score_margin=RERANK_SCORE_MARGIN
 ):
 
     if not documents:

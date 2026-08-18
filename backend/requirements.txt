@@ -1,4 +1,7 @@
 fastapi
 uvicorn
-qdrant-client
 python-dotenv
+pymupdf
+chromadb
+sentence-transformers
+groq

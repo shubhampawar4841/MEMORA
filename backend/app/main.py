@@ -7,6 +7,13 @@ from app.chunking import chunk_text
 from app.embeddings import embed_texts, embed_query
 from app.reranker import rerank
 from app.generation import generate_answer
+from app.config import (
+    ASK_RERANK_TOP_K,
+    CORS_ORIGINS,
+    RERANK_SCORE_MARGIN,
+    SEARCH_RERANK_TOP_K,
+    VECTOR_TOP_K,
+)
 
 from app.chroma import (
     add_documents,
@@ -24,7 +31,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -371,7 +378,7 @@ async def search_pdf(
 
         query_embedding,
 
-        top_k=10,
+        top_k=VECTOR_TOP_K,
 
         document_id=document_id
 
@@ -428,9 +435,9 @@ async def search_pdf(
 
         documents,
 
-        top_k=5,
+        top_k=SEARCH_RERANK_TOP_K,
 
-        score_margin=0.25
+        score_margin=RERANK_SCORE_MARGIN
 
     )
 
@@ -599,7 +606,7 @@ async def ask(
 
         query_embedding,
 
-        top_k=10,
+        top_k=VECTOR_TOP_K,
 
         document_id=document_id
 
@@ -660,9 +667,9 @@ async def ask(
 
         documents,
 
-        top_k=3,
+        top_k=ASK_RERANK_TOP_K,
 
-        score_margin=0.25
+        score_margin=RERANK_SCORE_MARGIN
 
     )
 

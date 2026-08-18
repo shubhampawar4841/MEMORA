@@ -1,13 +1,15 @@
 import uuid
 import chromadb
 
+from app.config import CHROMA_COLLECTION_NAME, CHROMA_PATH
+
 
 # ============================================================
 # CHROMADB CLIENT
 # ============================================================
 
 client = chromadb.PersistentClient(
-    path="./data/chroma"
+    path=CHROMA_PATH
 )
 
 
@@ -16,7 +18,7 @@ client = chromadb.PersistentClient(
 # ============================================================
 
 collection = client.get_or_create_collection(
-    name="nerva",
+    name=CHROMA_COLLECTION_NAME,
     configuration={
         "hnsw": {
             "space": "cosine"

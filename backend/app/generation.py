@@ -1,15 +1,9 @@
-import os
-
-from dotenv import load_dotenv
 from groq import Groq
 
+from app.config import GROQ_API_KEY, GROQ_MODEL_NAME
 
-load_dotenv()
 
-
-api_key = os.getenv("GROQ_API_KEY")
-
-if not api_key:
+if not GROQ_API_KEY:
     raise RuntimeError(
         "GROQ_API_KEY is missing. "
         "Create a .env file in the backend directory."
@@ -17,11 +11,9 @@ if not api_key:
 
 
 client = Groq(
-    api_key=api_key
+    api_key=GROQ_API_KEY
 )
 
-
-MODEL_NAME = "openai/gpt-oss-20b"
 
 def generate_answer(
     query: str,
@@ -53,7 +45,7 @@ Answer:
 
     response = client.chat.completions.create(
 
-        model=MODEL_NAME,
+        model=GROQ_MODEL_NAME,
 
         messages=[
 
