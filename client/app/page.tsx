@@ -1,53 +1,170 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { Sparkles } from 'lucide-react'
 import {
-  Activity, Archive, ArrowUp, Bell, BookOpen, Bot, Check, ChevronDown, ChevronRight,
-  CircleHelp, Command, FileCode2, FileText, Folder, GitBranch, Globe2, Hash, Inbox,
-  LayoutDashboard, Library, Menu, MessageSquare, MoreHorizontal, Paperclip, Plus,
-  Search, Settings, Sparkles, Upload, UserRound, X, Zap
-} from 'lucide-react'
+  getHome,
+  listDocuments,
+  type AskSource,
+  type DocumentItem,
+} from '@/lib/api'
+import { Chat } from '@/components/chat/Chat'
+import { Knowledge } from '@/components/knowledge/Knowledge'
+import { Sidebar } from '@/components/layout/Sidebar'
+import { Topbar } from '@/components/layout/Topbar'
+import { Overview } from '@/components/overview/Overview'
+import { Overlay, type OverlayType } from '@/components/overlays/Overlay'
 
-const sources = [
-  { title: 'Building a production RAG pipeline', type: 'Markdown', icon: FileText, color: 'violet', meta: '12 chunks · 2 days ago' },
-  { title: 'finora/src/lib/llm/client.ts', type: 'Code', icon: FileCode2, color: 'indigo', meta: '8 chunks · 3 days ago' },
-  { title: 'Raava product spec v2.pdf', type: 'PDF', icon: FileText, color: 'amber', meta: '24 chunks · 5 days ago' },
-  { title: 'The Latent Space — RAG systems', type: 'Website', icon: Globe2, color: 'mint', meta: '18 chunks · 1 week ago' },
-  { title: 'Interview prep notes', type: 'Markdown', icon: FileText, color: 'violet', meta: '31 chunks · 2 weeks ago' },
-]
+export default function Page() {
+  const [active, setActive] = useState('overview')
+  const [modal, setModal] = useState<OverlayType | null>(null)
+  const [mobile, setMobile] = useState(false)
+  const [documents, setDocuments] = useState<DocumentItem[]>([])
+  const [docsLoading, setDocsLoading] = useState(true)
+  const [docsError, setDocsError] = useState<string | null>(null)
+  const [apiOk, setApiOk] = useState<boolean | null>(null)
+  const [apiMessage, setApiMessage] = useState<string | null>(null)
+  const [citation, setCitation] = useState<AskSource | null>(null)
 
-const prompts = ['How should I structure a RAG evaluation?', 'Find the latest notes on Raava', 'Summarize my TypeScript patterns']
+  const refreshDocuments = useCallback(async () => {
+    setDocsLoading(true)
+    setDocsError(null)
 
-function Sidebar({ active, onNavigate, onUpload }: { active: string; onNavigate: (v: string) => void; onUpload: () => void }) {
-  const items = [
-    { label: 'Overview', icon: LayoutDashboard, id: 'overview' },
-    { label: 'Chat', icon: MessageSquare, id: 'chat' },
-    { label: 'Knowledge', icon: Library, id: 'knowledge' },
-    { label: 'Collections', icon: Folder, id: 'collections' },
-  ]
-  return <aside className="sidebar">
-    <div className="brand"><div className="brand-mark"><Sparkles size={17} /></div><div><strong>MindVault</strong><span>Personal intelligence</span></div><button className="icon-btn mobile-close"><X size={16}/></button></div>
-    <button className="new-chat" onClick={() => onNavigate('chat')}><Plus size={16}/> New conversation <kbd>⌘N</kbd></button>
-    <nav className="nav-group"><span className="eyebrow">Workspace</span>{items.map(item => <button key={item.id} className={`nav-item ${active === item.id ? 'active' : ''}`} onClick={() => onNavigate(item.id)}><item.icon size={17}/>{item.label}{item.id === 'chat' && <span className="online-dot"/>}</button>)}</nav>
-    <nav className="nav-group"><span className="eyebrow">Sources</span><button className={`nav-item ${active === 'search' ? 'active' : ''}`} onClick={() => onNavigate('search')}><Search size={17}/> Search <kbd>⌘K</kbd></button><button className="nav-item" onClick={onUpload}><Upload size={17}/> Add knowledge</button></nav>
-    <div className="sidebar-bottom"><button className="nav-item" onClick={() => onNavigate('activity')}><Activity size={17}/> Activity <span className="count">3</span></button><button className="nav-item" onClick={() => onNavigate('settings')}><Settings size={17}/> Settings</button><div className="profile"><div className="avatar">AK</div><div><strong>Alex Kim</strong><span>Free workspace</span></div><MoreHorizontal size={17}/></div></div>
-  </aside>
+    try {
+      const res = await listDocuments()
+      setDocuments(res.documents)
+    } catch (err) {
+      setDocsError(
+        err instanceof Error ? err.message : 'Failed to load documents',
+      )
+      setDocuments([])
+    } finally {
+      setDocsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void getHome()
+      .then((res) => {
+        setApiOk(true)
+        setApiMessage(res.message)
+      })
+      .catch(() => {
+        setApiOk(false)
+        setApiMessage('Backend unreachable at localhost:8000')
+      })
+
+    void refreshDocuments()
+  }, [refreshDocuments])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setModal('search')
+      }
+    }
+
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const navigate = (v: string) => {
+    if (v === 'search') {
+      setModal('search')
+      setMobile(false)
+      return
+    }
+
+    setActive(v)
+    setMobile(false)
+  }
+
+  const openCitation = (source: AskSource) => {
+    setCitation(source)
+    setModal('citation')
+  }
+
+  return (
+    <main className="app-shell">
+      <Sidebar
+        active={active}
+        onNavigate={navigate}
+        onUpload={() => setModal('upload')}
+      />
+
+      <div className="main-column">
+        <Topbar
+          active={active}
+          onMenu={() => setMobile(!mobile)}
+          onSearch={() => setModal('search')}
+          apiOk={apiOk}
+        />
+
+        {mobile && (
+          <div className="mobile-sidebar">
+            <Sidebar
+              active={active}
+              onNavigate={navigate}
+              onUpload={() => setModal('upload')}
+            />
+          </div>
+        )}
+
+        <div className="page-content">
+          {active === 'overview' && (
+            <Overview
+              documents={documents}
+              apiOk={apiOk}
+              apiMessage={apiMessage}
+              onNavigate={navigate}
+              onCitation={openCitation}
+            />
+          )}
+
+          {active === 'chat' && (
+            <Chat documents={documents} onCitation={openCitation} />
+          )}
+
+          {active === 'knowledge' && (
+            <Knowledge
+              documents={documents}
+              loading={docsLoading}
+              error={docsError}
+              onUpload={() => setModal('upload')}
+              onRefresh={() => void refreshDocuments()}
+            />
+          )}
+
+          {active !== 'overview' &&
+            active !== 'chat' &&
+            active !== 'knowledge' && (
+              <div className="content-page">
+                <div className="page-heading">
+                  <div>
+                    <span className="eyebrow">WORKSPACE</span>
+                    <h1>{active[0].toUpperCase() + active.slice(1)}</h1>
+                    <p>This area is ready for your knowledge workflow.</p>
+                  </div>
+                </div>
+                <div className="empty-panel">
+                  <Sparkles size={21} />
+                  <h2>Coming together in your vault</h2>
+                  <p>Use the sidebar to return to chat or knowledge sources.</p>
+                </div>
+              </div>
+            )}
+        </div>
+      </div>
+
+      {modal && (
+        <Overlay
+          type={modal}
+          onClose={() => setModal(null)}
+          onUploaded={() => void refreshDocuments()}
+          citation={citation}
+        />
+      )}
+    </main>
+  )
 }
-
-function Topbar({ active, onMenu, onSearch }: { active: string; onMenu: () => void; onSearch: () => void }) {
-  return <header className="topbar"><button className="icon-btn menu-btn" onClick={onMenu}><Menu size={19}/></button><div className="crumb"><span>Workspace</span><ChevronRight size={14}/><strong>{active[0].toUpperCase()+active.slice(1)}</strong></div><div className="top-actions"><button className="search-pill" onClick={onSearch}><Search size={15}/> Search anything <kbd>⌘ K</kbd></button><button className="icon-btn"><Bell size={17}/><i/></button><div className="mini-avatar">AK</div></div></header>
-}
-
-function EmptyChat({ onPrompt }: { onPrompt: (p: string) => void }) { return <div className="empty-chat"><div className="hero-orbit"><div className="orbit-ring ring-one"/><div className="orbit-ring ring-two"/><div className="core"><Sparkles size={22}/></div></div><h1>What&apos;s on your mind?</h1><p>Ask anything about your knowledge, projects, or ideas.<br/>I&apos;ll search across your entire workspace to help you think.</p><div className="prompt-list">{prompts.map((p, i) => <button key={p} onClick={() => onPrompt(p)}><span>{i === 0 ? <Zap size={15}/> : i === 1 ? <BookOpen size={15}/> : <FileCode2 size={15}/>}</span>{p}<ArrowUp size={14}/></button>)}</div></div> }
-
-function Chat({ onCitation }: { onCitation: () => void }) { const [messages, setMessages] = useState<{role: string; text: string}[]>([]); const [input, setInput] = useState(''); const send = (text = input) => { if (!text.trim()) return; setMessages(m => [...m, { role:'user', text }, { role:'assistant', text:'I found a few useful threads across your workspace. Your strongest pattern is to keep retrieval evaluation separate from generation quality, then track both with a small set of golden questions.' }]); setInput('') }; return <section className="chat-page">{messages.length === 0 ? <EmptyChat onPrompt={send}/> : <div className="messages">{messages.map((m, i) => <div className={`message ${m.role}`} key={i}><div className="message-label">{m.role === 'user' ? 'You' : <><div className="tiny-mark"><Sparkles size={11}/></div> MindVault</>}</div><p>{m.text}</p>{m.role === 'assistant' && <button className="citation" onClick={onCitation}><FileText size={14}/><span><strong>Building a production RAG pipeline</strong><small>Section 3 · Evaluation</small></span><ChevronRight size={14}/></button>}</div>)}</div>}<div className="composer-wrap"><div className="composer"><textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();send()}}} placeholder="Ask MindVault anything..." rows={1}/><div className="composer-footer"><div className="composer-tools"><button><Paperclip size={16}/></button><button><Globe2 size={16}/></button><span>Search all sources</span></div><button className="send-btn" onClick={()=>send()} disabled={!input.trim()}><ArrowUp size={16}/></button></div></div><div className="composer-note">MindVault can make mistakes. Verify important information.</div></div></section> }
-
-function Knowledge({ onUpload }: { onUpload: () => void }) { const [query, setQuery] = useState(''); const filtered = useMemo(()=>sources.filter(s=>s.title.toLowerCase().includes(query.toLowerCase())),[query]); return <section className="content-page"><div className="page-heading"><div><span className="eyebrow">YOUR SECOND BRAIN</span><h1>Knowledge</h1><p>Everything MindVault knows about your work and ideas.</p></div><button className="primary-btn" onClick={onUpload}><Plus size={16}/> Add knowledge</button></div><div className="stats"><div><span>Indexed sources</span><strong>128</strong><small>+12 this month</small></div><div><span>Knowledge chunks</span><strong>2,846</strong><small>Across 8 collections</small></div><div><span>Last indexed</span><strong>2m ago</strong><small className="status"><Check size={13}/> All systems healthy</small></div></div><div className="section-toolbar"><div className="field"><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search your sources..."/></div><button className="filter-btn">All types <ChevronDown size={14}/></button></div><div className="source-table"><div className="table-head"><span>Source</span><span>Type</span><span>Updated</span><span>Actions</span></div>{filtered.map(s=><div className="source-row" key={s.title}><div className="source-name"><div className={`file-icon ${s.color}`}><s.icon size={16}/></div><div><strong>{s.title}</strong><small>{s.meta}</small></div></div><span className={`type-pill ${s.color}`}>{s.type}</span><span className="updated">Recently</span><button className="icon-btn"><MoreHorizontal size={16}/></button></div>)}</div></section> }
-
-function Overview({ onNavigate, onCitation }: { onNavigate: (v: string)=>void; onCitation: ()=>void }) { return <section className="content-page overview"><div className="page-heading"><div><span className="eyebrow">MONDAY, AUGUST 17</span><h1>Good morning, Alex.</h1><p>Your knowledge is up to date. Here&apos;s what&apos;s happening.</p></div><div className="health"><span className="pulse"/> Vault healthy <ChevronDown size={14}/></div></div><div className="overview-grid"><div className="focus-card" onClick={()=>onNavigate('chat')}><div className="card-top"><span className="eyebrow">CONTINUE THINKING</span><MessageSquare size={17}/></div><h2>How should I evaluate a RAG system?</h2><p>Last discussed 2 hours ago · 6 messages</p><div className="card-link">Continue conversation <ArrowUp size={14}/></div></div><div className="metric-card"><div className="metric-icon violet"><Library size={17}/></div><span>Knowledge added</span><strong>12 <small>this month</small></strong><div className="sparkline"><i/><i/><i/><i/><i/><i/><i/><i/></div></div><div className="metric-card"><div className="metric-icon amber"><Zap size={17}/></div><span>Agent runs</span><strong>34 <small>this month</small></strong><div className="run-status"><span className="pulse"/> 2 running now</div></div></div><div className="recent-head"><h2>Recently indexed</h2><button onClick={()=>onNavigate('knowledge')}>View all <ChevronRight size={14}/></button></div><div className="recent-list">{sources.slice(0,4).map(s=><button className="recent-item" key={s.title} onClick={onCitation}><div className={`file-icon ${s.color}`}><s.icon size={16}/></div><div><strong>{s.title}</strong><span>{s.type} · {s.meta.split('·')[1]}</span></div><Check size={15}/></button>)}</div></section> }
-
-function Overlay({ type, onClose }: { type: 'upload'|'search'|'citation'; onClose:()=>void }) { return <div className="overlay" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">{type === 'upload' ? 'EXPAND YOUR VAULT' : type === 'search' ? 'COMMAND CENTER' : 'SOURCE PREVIEW'}</span><h2>{type === 'upload' ? 'Add knowledge' : type === 'search' ? 'Search workspace' : 'Building a production RAG pipeline'}</h2></div><button className="icon-btn" onClick={onClose}><X size={18}/></button></div>{type === 'upload' ? <><div className="upload-zone"><Upload size={22}/><strong>Drop files here or browse</strong><span>PDF, Markdown, TXT, CSV, and code files</span><button className="primary-btn">Browse files</button></div><div className="source-options"><button><Globe2 size={17}/><strong>Website</strong><small>Index a URL</small></button><button><GitBranch size={17}/><strong>GitHub</strong><small>Connect a repository</small></button><button><Hash size={17}/><strong>YouTube</strong><small>Transcribe a video</small></button></div></> : type === 'search' ? <div className="command-search"><Search size={18}/><input autoFocus placeholder="Search sources, chats, and collections..."/><kbd>ESC</kbd><div className="command-hint"><Command size={14}/> Try searching for “RAG evaluation”</div></div> : <div className="preview-body"><div className="preview-meta"><span className="type-pill violet">Markdown</span><span>Updated 2 days ago</span></div><p>Evaluation is the foundation of reliable retrieval-augmented generation systems. Before optimizing prompts, define a small golden dataset that represents the questions your users actually ask.</p><p>Measure retrieval quality with context precision and recall. Measure answer quality separately with faithfulness and relevance. Keeping these dimensions separate makes failures much easier to diagnose.</p><div className="insight"><Sparkles size={15}/><span><strong>MindVault insight</strong>This connects to 3 other notes in your RAG &amp; AI collection.</span></div></div>}</div></div> }
-
-export default function Page() { const [active, setActive] = useState('overview'); const [modal, setModal] = useState<'upload'|'search'|'citation'|null>(null); const [mobile, setMobile] = useState(false); const navigate=(v:string)=>{setActive(v);setMobile(false)}; return <main className="app-shell"><Sidebar active={active} onNavigate={navigate} onUpload={()=>setModal('upload')}/><div className="main-column"><Topbar active={active} onMenu={()=>setMobile(!mobile)} onSearch={()=>setModal('search')}/>{mobile && <div className="mobile-sidebar"><Sidebar active={active} onNavigate={navigate} onUpload={()=>setModal('upload')}/></div>}<div className="page-content">{active==='overview' && <Overview onNavigate={navigate} onCitation={()=>setModal('citation')}/>} {active==='chat' && <Chat onCitation={()=>setModal('citation')}/>} {active==='knowledge' && <Knowledge onUpload={()=>setModal('upload')}/>} {active!=='overview'&&active!=='chat'&&active!=='knowledge' && <div className="content-page"><div className="page-heading"><div><span className="eyebrow">WORKSPACE</span><h1>{active[0].toUpperCase()+active.slice(1)}</h1><p>This area is ready for your knowledge workflow.</p></div></div><div className="empty-panel"><Sparkles size={21}/><h2>Coming together in your vault</h2><p>Use the sidebar to return to your conversations or knowledge sources.</p></div></div>}</div></div>{modal && <Overlay type={modal} onClose={()=>setModal(null)}/>}</main> }
-
-export { Sidebar }
