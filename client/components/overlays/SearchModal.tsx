@@ -8,9 +8,15 @@ import { ModalShell } from '@/components/overlays/ModalShell'
 
 type SearchModalProps = {
   onClose: () => void
+  documentId?: string | null
+  documentLabel?: string | null
 }
 
-export function SearchModal({ onClose }: SearchModalProps) {
+export function SearchModal({
+  onClose,
+  documentId = null,
+  documentLabel = null,
+}: SearchModalProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
@@ -24,7 +30,7 @@ export function SearchModal({ onClose }: SearchModalProps) {
     setSearchError(null)
 
     try {
-      const res = await searchKnowledge(q)
+      const res = await searchKnowledge(q, documentId ?? undefined)
       setSearchResults(res.results)
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : 'Search failed')
@@ -37,7 +43,7 @@ export function SearchModal({ onClose }: SearchModalProps) {
   return (
     <ModalShell
       eyebrow="COMMAND CENTER"
-      title="Search workspace"
+      title={documentLabel ? `Search ${documentLabel}` : 'Search workspace'}
       onClose={onClose}
     >
       <div>
@@ -57,7 +63,7 @@ export function SearchModal({ onClose }: SearchModalProps) {
 
         <div className="command-hint">
           <Command size={14} />
-          Uses POST /search
+          Uses POST /search{documentId ? ' (document-scoped)' : ''}
         </div>
 
         {searching && (

@@ -5,9 +5,24 @@ import { DocumentRow } from '@/components/knowledge/DocumentRow'
 type DocumentListProps = {
   documents: DocumentItem[]
   loading: boolean
+  busyId?: string | null
+  onChat: (document: DocumentItem) => void
+  onSearch: (document: DocumentItem) => void
+  onDelete: (document: DocumentItem) => void
+  onReindex: (document: DocumentItem) => void
+  onRename: (document: DocumentItem) => void
 }
 
-export function DocumentList({ documents, loading }: DocumentListProps) {
+export function DocumentList({
+  documents,
+  loading,
+  busyId,
+  onChat,
+  onSearch,
+  onDelete,
+  onReindex,
+  onRename,
+}: DocumentListProps) {
   return (
     <div className="source-table">
       <div className="table-head">
@@ -43,7 +58,16 @@ export function DocumentList({ documents, loading }: DocumentListProps) {
 
       {!loading &&
         documents.map((doc) => (
-          <DocumentRow key={doc.document_id} document={doc} />
+          <DocumentRow
+            key={doc.document_id}
+            document={doc}
+            busy={busyId === doc.document_id}
+            onChat={onChat}
+            onSearch={onSearch}
+            onDelete={onDelete}
+            onReindex={onReindex}
+            onRename={onRename}
+          />
         ))}
     </div>
   )

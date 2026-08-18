@@ -34,11 +34,15 @@ export function CitationModal({ citation, onClose }: CitationModalProps) {
             : ''}
         </p>
 
+        {citation?.text && (
+          <p style={{ whiteSpace: 'pre-wrap' }}>{citation.text}</p>
+        )}
+
         <div className="insight">
           <Sparkles size={15} />
           <span>
             <strong>Retrieved source</strong>
-            This citation came from your Nerva /ask or document list response.
+            This citation came from your Nerva retrieval pipeline.
           </span>
         </div>
       </div>

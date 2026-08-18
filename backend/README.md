@@ -53,14 +53,29 @@ ChromaDB data is stored locally under `data/chroma/` (no separate vector DB serv
 
 ```text
 app/
-  main.py                 # FastAPI routes
+  main.py                 # FastAPI app + routers
   config.py               # settings
-  chunking.py             # PDF chunking
-  embeddings/qwen.py      # Qwen embeddings
+  chunking.py             # PDF chunking (+ overlap)
+  routers/                # documents, search, chat, health
+  schemas/                # Pydantic models
+  embeddings/qwen.py
   reranking/cross_encoder.py
-  vectorstore/chroma.py   # ChromaDB
+  vectorstore/chroma.py
   services/
-    ingestion.py          # PDF → Chroma
-    retrieval.py          # shared search/ask retrieval
-    generation.py         # Groq answers
+    ingestion.py
+    retrieval.py          # hybrid vector + keyword
+    generation.py         # Groq (+ streaming)
+    documents.py
+    conversations.py
+eval/
+  dataset.json
+  run_eval.py
+```
+
+## Evaluation
+
+From `backend/`:
+
+```bash
+python -m eval.run_eval
 ```

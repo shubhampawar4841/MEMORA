@@ -2,7 +2,12 @@
 
 import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
-import type { DocumentItem } from '@/lib/api'
+import {
+  deleteDocument,
+  reindexDocument,
+  renameDocument,
+  type DocumentItem,
+} from '@/lib/api'
 import { DocumentList } from '@/components/knowledge/DocumentList'
 import { KnowledgeStats } from '@/components/knowledge/KnowledgeStats'
 import { KnowledgeToolbar } from '@/components/knowledge/KnowledgeToolbar'
@@ -13,6 +18,8 @@ type KnowledgeProps = {
   error: string | null
   onUpload: () => void
   onRefresh: () => void
+  onChatDocument: (document: DocumentItem) => void
+  onSearchDocument: (document: DocumentItem) => void
 }
 
 export function Knowledge({
@@ -21,8 +28,12 @@ export function Knowledge({
   error,
   onUpload,
   onRefresh,
+  onChatDocument,
+  onSearchDocument,
 }: KnowledgeProps) {
   const [query, setQuery] = useState('')
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const filtered = useMemo(
     () =>
@@ -36,6 +47,19 @@ export function Knowledge({
     (sum, d) => sum + (d.chunks ?? 0),
     0,
   )
+
+  const run = async (documentId: string, fn: () => Promise<void>) => {
+    setBusyId(documentId)
+    setActionError(null)
+    try {
+      await fn()
+      onRefresh()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Action failed')
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   return (
     <section className="content-page">
@@ -61,12 +85,37 @@ export function Knowledge({
         documentCount={documents.length}
         totalChunks={totalChunks}
         loading={loading}
-        error={error}
+        error={error ?? actionError}
       />
 
       <KnowledgeToolbar query={query} onQueryChange={setQuery} />
 
-      <DocumentList documents={filtered} loading={loading} />
+      <DocumentList
+        documents={filtered}
+        loading={loading}
+        busyId={busyId}
+        onChat={onChatDocument}
+        onSearch={onSearchDocument}
+        onDelete={(doc) =>
+          void run(doc.document_id, async () => {
+            if (!window.confirm(`Delete ${doc.source}?`)) return
+            await deleteDocument(doc.document_id)
+          })
+        }
+        onReindex={(doc) =>
+          void run(doc.document_id, async () => {
+            const res = await reindexDocument(doc.document_id)
+            if (res.error) throw new Error(res.error)
+          })
+        }
+        onRename={(doc) =>
+          void run(doc.document_id, async () => {
+            const next = window.prompt('Rename document', doc.source ?? '')
+            if (!next?.trim()) return
+            await renameDocument(doc.document_id, next.trim())
+          })
+        }
+      />
     </section>
   )
 }

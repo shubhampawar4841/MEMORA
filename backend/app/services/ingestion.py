@@ -1,8 +1,40 @@
+from pathlib import Path
+
 import pymupdf
 
 from app.chunking import chunk_text
+from app.config import PDF_STORAGE_PATH
 from app.embeddings.qwen import embed_texts
-from app.vectorstore.chroma import add_documents
+from app.vectorstore.chroma import add_documents, delete_document_chunks
+
+
+def _pdf_dir() -> Path:
+    path = Path(PDF_STORAGE_PATH)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def pdf_path_for(document_id: str) -> Path:
+    return _pdf_dir() / f"{document_id}.pdf"
+
+
+def save_pdf_bytes(document_id: str, pdf_bytes: bytes) -> Path:
+    path = pdf_path_for(document_id)
+    path.write_bytes(pdf_bytes)
+    return path
+
+
+def load_pdf_bytes(document_id: str) -> bytes | None:
+    path = pdf_path_for(document_id)
+    if not path.exists():
+        return None
+    return path.read_bytes()
+
+
+def delete_stored_pdf(document_id: str) -> None:
+    path = pdf_path_for(document_id)
+    if path.exists():
+        path.unlink()
 
 
 def extract_pages(pdf_bytes: bytes):
@@ -39,11 +71,15 @@ def chunk_pages(pages, source: str):
     return chunks, metadata
 
 
-def ingest_pdf(pdf_bytes: bytes, filename: str | None):
+def ingest_pdf(
+    pdf_bytes: bytes,
+    filename: str | None,
+    document_id: str | None = None,
+):
     """
     Full upload pipeline:
 
-    PDF bytes → extract → chunk → embed → Chroma
+    PDF bytes → extract → chunk → embed → Chroma (+ persist PDF)
     """
     print("Opening PDF...")
     pages = extract_pages(pdf_bytes)
@@ -69,8 +105,18 @@ def ingest_pdf(pdf_bytes: bytes, filename: str | None):
     embedding_dimension = len(embeddings[0])
     print(f"Embedding dimensions: {embedding_dimension}")
 
+    if document_id:
+        delete_document_chunks(document_id)
+
     print("\nSaving embeddings to ChromaDB...")
-    stored = add_documents(chunks, embeddings, metadata)
+    stored = add_documents(
+        chunks,
+        embeddings,
+        metadata,
+        document_id=document_id,
+    )
+    save_pdf_bytes(stored["document_id"], pdf_bytes)
+
     print(f"Stored {stored['chunks']} chunks.")
     print(f"Document ID: {stored['document_id']}")
     print("\n========== COMPLETE ==========\n")

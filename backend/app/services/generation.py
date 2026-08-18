@@ -11,7 +11,7 @@ if not GROQ_API_KEY:
 client = Groq(api_key=GROQ_API_KEY)
 
 
-def generate_answer(query: str, context: str):
+def _build_messages(query: str, context: str):
     prompt = f"""
 You are Nerva, a document question-answering assistant.
 
@@ -34,22 +34,41 @@ Question:
 Answer:
 """
 
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Answer questions using only the supplied document context."
+            ),
+        },
+        {
+            "role": "user",
+            "content": prompt,
+        },
+    ]
+
+
+def generate_answer(query: str, context: str):
     response = client.chat.completions.create(
         model=GROQ_MODEL_NAME,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "Answer questions using only the supplied document context."
-                ),
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ],
+        messages=_build_messages(query, context),
         temperature=0.1,
         max_tokens=500,
     )
-
     return response.choices[0].message.content.strip()
+
+
+def stream_answer(query: str, context: str):
+    stream = client.chat.completions.create(
+        model=GROQ_MODEL_NAME,
+        messages=_build_messages(query, context),
+        temperature=0.1,
+        max_tokens=500,
+        stream=True,
+    )
+
+    for chunk in stream:
+        delta = chunk.choices[0].delta
+        token = getattr(delta, "content", None)
+        if token:
+            yield token

@@ -1,8 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
-  askQuestion,
+  askQuestionStream,
+  createConversation,
+  getConversation,
   type AskSource,
   type DocumentItem,
 } from '@/lib/api'
@@ -14,19 +16,57 @@ import {
 } from '@/components/chat/ChatMessage'
 import { EmptyChat } from '@/components/chat/EmptyChat'
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+
 type ChatProps = {
   documents: DocumentItem[]
   onCitation: (source: AskSource) => void
+  conversationId: string | null
+  initialDocumentId?: string | null
+  onConversationCreated?: (id: string) => void
+  onConversationUpdated?: () => void
 }
 
-export function Chat({ documents, onCitation }: ChatProps) {
+export function Chat({
+  documents,
+  onCitation,
+  conversationId,
+  initialDocumentId = null,
+  onConversationCreated,
+  onConversationUpdated,
+}: ChatProps) {
   const [messages, setMessages] = useState<ChatMessageData[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  // null = search all documents
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
-    null,
+    initialDocumentId,
   )
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(
+    conversationId,
+  )
+
+  useEffect(() => {
+    setActiveConversationId(conversationId)
+    setSelectedDocumentId(initialDocumentId)
+
+    if (!conversationId) {
+      setMessages([])
+      return
+    }
+
+    void getConversation(conversationId)
+      .then((detail) => {
+        setSelectedDocumentId(detail.document_id)
+        setMessages(
+          detail.messages.map((m) => ({
+            role: m.role as 'user' | 'assistant',
+            text: m.content,
+            sources: m.sources,
+          })),
+        )
+      })
+      .catch(() => setMessages([]))
+  }, [conversationId, initialDocumentId])
 
   const selectedDocument = documents.find(
     (doc) => doc.document_id === selectedDocumentId,
@@ -41,22 +81,62 @@ export function Chat({ documents, onCitation }: ChatProps) {
     setLoading(true)
 
     try {
-      const response = await askQuestion(
+      let convoId = activeConversationId
+      if (!convoId) {
+        const created = await createConversation({
+          document_id: selectedDocumentId,
+        })
+        convoId = created.id
+        setActiveConversationId(convoId)
+        onConversationCreated?.(convoId)
+      }
+
+      let assembled = ''
+      setMessages((m) => [...m, { role: 'assistant', text: '' }])
+
+      const streamed = await askQuestionStream(
         question,
         selectedDocumentId ?? undefined,
+        (token) => {
+          assembled += token
+          setMessages((m) => {
+            const next = [...m]
+            const last = next[next.length - 1]
+            if (last?.role === 'assistant') {
+              next[next.length - 1] = { ...last, text: assembled }
+            }
+            return next
+          })
+        },
       )
 
-      setMessages((m) => [
-        ...m,
-        {
-          role: 'assistant',
-          text: response.answer,
-          sources: response.sources,
-        },
-      ])
+      setMessages((m) => {
+        const next = [...m]
+        const last = next[next.length - 1]
+        if (last?.role === 'assistant') {
+          next[next.length - 1] = {
+            role: 'assistant',
+            text: streamed.answer,
+            sources: streamed.sources,
+          }
+        }
+        return next
+      })
+
+      await fetch(`${API_URL}/conversations/${convoId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_content: question,
+          assistant_content: streamed.answer,
+          sources: streamed.sources,
+        }),
+      })
+
+      onConversationUpdated?.()
     } catch (err) {
       setMessages((m) => [
-        ...m,
+        ...m.filter((msg) => !(msg.role === 'assistant' && msg.text === '')),
         {
           role: 'assistant',
           text:
@@ -83,7 +163,9 @@ export function Chat({ documents, onCitation }: ChatProps) {
               onCitation={onCitation}
             />
           ))}
-          {loading && <LoadingMessage />}
+          {loading && messages[messages.length - 1]?.role !== 'assistant' && (
+            <LoadingMessage />
+          )}
         </div>
       )}
 

@@ -25,6 +25,11 @@ export default function Page() {
   const [apiOk, setApiOk] = useState<boolean | null>(null)
   const [apiMessage, setApiMessage] = useState<string | null>(null)
   const [citation, setCitation] = useState<AskSource | null>(null)
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [chatDocumentId, setChatDocumentId] = useState<string | null>(null)
+  const [searchDocumentId, setSearchDocumentId] = useState<string | null>(null)
+  const [searchDocumentLabel, setSearchDocumentLabel] = useState<string | null>(null)
+  const [conversationRefresh, setConversationRefresh] = useState(0)
 
   const refreshDocuments = useCallback(async () => {
     setDocsLoading(true)
@@ -61,7 +66,15 @@ export default function Page() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
+        setSearchDocumentId(null)
+        setSearchDocumentLabel(null)
         setModal('search')
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        setConversationId(null)
+        setChatDocumentId(null)
+        setActive('chat')
       }
     }
 
@@ -71,6 +84,8 @@ export default function Page() {
 
   const navigate = (v: string) => {
     if (v === 'search') {
+      setSearchDocumentId(null)
+      setSearchDocumentLabel(null)
       setModal('search')
       setMobile(false)
       return
@@ -85,29 +100,37 @@ export default function Page() {
     setModal('citation')
   }
 
+  const sidebarProps = {
+    active,
+    onNavigate: navigate,
+    onUpload: () => setModal('upload'),
+    activeConversationId: conversationId,
+    onSelectConversation: (id: string | null) => {
+      setConversationId(id)
+      setChatDocumentId(null)
+    },
+    refreshToken: conversationRefresh,
+  }
+
   return (
     <main className="app-shell">
-      <Sidebar
-        active={active}
-        onNavigate={navigate}
-        onUpload={() => setModal('upload')}
-      />
+      <Sidebar {...sidebarProps} />
 
       <div className="main-column">
         <Topbar
           active={active}
           onMenu={() => setMobile(!mobile)}
-          onSearch={() => setModal('search')}
+          onSearch={() => {
+            setSearchDocumentId(null)
+            setSearchDocumentLabel(null)
+            setModal('search')
+          }}
           apiOk={apiOk}
         />
 
         {mobile && (
           <div className="mobile-sidebar">
-            <Sidebar
-              active={active}
-              onNavigate={navigate}
-              onUpload={() => setModal('upload')}
-            />
+            <Sidebar {...sidebarProps} />
           </div>
         )}
 
@@ -123,7 +146,17 @@ export default function Page() {
           )}
 
           {active === 'chat' && (
-            <Chat documents={documents} onCitation={openCitation} />
+            <Chat
+              documents={documents}
+              onCitation={openCitation}
+              conversationId={conversationId}
+              initialDocumentId={chatDocumentId}
+              onConversationCreated={(id) => {
+                setConversationId(id)
+                setConversationRefresh((n) => n + 1)
+              }}
+              onConversationUpdated={() => setConversationRefresh((n) => n + 1)}
+            />
           )}
 
           {active === 'knowledge' && (
@@ -133,6 +166,16 @@ export default function Page() {
               error={docsError}
               onUpload={() => setModal('upload')}
               onRefresh={() => void refreshDocuments()}
+              onChatDocument={(doc) => {
+                setConversationId(null)
+                setChatDocumentId(doc.document_id)
+                setActive('chat')
+              }}
+              onSearchDocument={(doc) => {
+                setSearchDocumentId(doc.document_id)
+                setSearchDocumentLabel(doc.source)
+                setModal('search')
+              }}
             />
           )}
 
@@ -163,6 +206,8 @@ export default function Page() {
           onClose={() => setModal(null)}
           onUploaded={() => void refreshDocuments()}
           citation={citation}
+          searchDocumentId={searchDocumentId}
+          searchDocumentLabel={searchDocumentLabel}
         />
       )}
     </main>

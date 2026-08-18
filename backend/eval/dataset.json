@@ -1,0 +1,63 @@
+[
+  {
+    "id": "resume-cgpa",
+    "question": "What is Shubham's CGPA?",
+    "expected_source_contains": "Shubham",
+    "notes": "Should cite the resume PDF"
+  },
+  {
+    "id": "resume-study",
+    "question": "Where did Shubham study?",
+    "expected_source_contains": "Shubham",
+    "notes": "Education section on resume"
+  },
+  {
+    "id": "resume-internship",
+    "question": "Where did Shubham intern as a software developer?",
+    "expected_source_contains": "Shubham",
+    "notes": "Raava internship"
+  },
+  {
+    "id": "resume-skills",
+    "question": "What technical skills does Shubham list?",
+    "expected_source_contains": "Shubham",
+    "notes": "Skills section"
+  },
+  {
+    "id": "5g-slicing",
+    "question": "What is 5G network slicing?",
+    "expected_source_contains": "5G",
+    "notes": "Module 5 PDF"
+  },
+  {
+    "id": "5g-mimo",
+    "question": "What is massive MIMO?",
+    "expected_source_contains": "5G",
+    "notes": "Module 5 PDF"
+  },
+  {
+    "id": "5g-latency",
+    "question": "What latency targets does 5G aim for?",
+    "expected_source_contains": "5G",
+    "notes": "5G requirements"
+  },
+  {
+    "id": "5g-usecases",
+    "question": "What are the main 5G use cases?",
+    "expected_source_contains": "5G",
+    "notes": "eMBB / URLLC / mMTC style content"
+  },
+  {
+    "id": "kshitij-resume",
+    "question": "Summarize Kshitij Kamble's background from the resume.",
+    "expected_source_contains": "Kshitij",
+    "notes": "Second resume in the index"
+  },
+  {
+    "id": "unknown",
+    "question": "What is the capital of Atlantis according to these PDFs?",
+    "expected_source_contains": null,
+    "expect_insufficient": true,
+    "notes": "Should refuse / say insufficient information"
+  }
+]

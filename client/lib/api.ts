@@ -13,6 +13,7 @@ export type AskSource = {
   chunk_index: number | null
   distance: number
   rerank_score: number
+  text?: string | null
 }
 
 export type AskResponse = {
@@ -49,6 +50,32 @@ export type UploadResponse = {
   error?: string
 }
 
+export type ConversationSummary = {
+  id: string
+  title: string
+  document_id: string | null
+  created_at: string
+  updated_at: string
+  message_count: number
+}
+
+export type ConversationMessage = {
+  id: string
+  role: string
+  content: string
+  sources: AskSource[]
+  created_at: string
+}
+
+export type ConversationDetail = {
+  id: string
+  title: string
+  document_id: string | null
+  created_at: string
+  updated_at: string
+  messages: ConversationMessage[]
+}
+
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const text = await res.text()
@@ -77,6 +104,36 @@ export async function uploadPdf(file: File) {
   return handle<UploadResponse>(res)
 }
 
+export async function deleteDocument(documentId: string) {
+  const res = await fetch(`${API_URL}/documents/${documentId}`, {
+    method: 'DELETE',
+  })
+  return handle<{ document_id: string; deleted: boolean; chunks_removed: number }>(res)
+}
+
+export async function renameDocument(documentId: string, source: string) {
+  const res = await fetch(`${API_URL}/documents/${documentId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source }),
+  })
+  return handle<{ document_id: string; source: string }>(res)
+}
+
+export async function reindexDocument(documentId: string) {
+  const res = await fetch(`${API_URL}/documents/${documentId}/reindex`, {
+    method: 'POST',
+  })
+  return handle<{
+    document_id: string
+    filename: string | null
+    pages: number
+    chunks: number
+    embedding_dimension: number
+    error: string | null
+  }>(res)
+}
+
 export async function searchKnowledge(query: string, documentId?: string) {
   const params = new URLSearchParams({ query })
   if (documentId) params.set('document_id', documentId)
@@ -88,5 +145,113 @@ export async function askQuestion(query: string, documentId?: string) {
   const params = new URLSearchParams({ query })
   if (documentId) params.set('document_id', documentId)
   const res = await fetch(`${API_URL}/ask?${params}`, { method: 'POST' })
+  return handle<AskResponse>(res)
+}
+
+export async function askQuestionStream(
+  query: string,
+  documentId: string | undefined,
+  onToken: (token: string) => void,
+): Promise<AskResponse> {
+  const params = new URLSearchParams({ query })
+  if (documentId) params.set('document_id', documentId)
+
+  const res = await fetch(`${API_URL}/ask/stream?${params}`, {
+    method: 'POST',
+  })
+
+  if (!res.ok || !res.body) {
+    const text = await res.text()
+    throw new Error(text || `Stream failed (${res.status})`)
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let answer = ''
+  let sources: AskSource[] = []
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    const parts = buffer.split('\n\n')
+    buffer = parts.pop() ?? ''
+
+    for (const part of parts) {
+      const line = part
+        .split('\n')
+        .find((l) => l.startsWith('data: '))
+      if (!line) continue
+      const payload = JSON.parse(line.slice(6)) as {
+        type: string
+        token?: string
+        answer?: string
+        sources?: AskSource[]
+      }
+      if (payload.type === 'token' && payload.token) {
+        answer += payload.token
+        onToken(payload.token)
+      }
+      if (payload.type === 'final') {
+        answer = payload.answer ?? answer
+        sources = payload.sources ?? []
+      }
+    }
+  }
+
+  return {
+    query,
+    document_id: documentId ?? null,
+    answer,
+    sources,
+  }
+}
+
+export async function listConversations() {
+  const res = await fetch(`${API_URL}/conversations`)
+  return handle<{ conversations: ConversationSummary[] }>(res)
+}
+
+export async function createConversation(input?: {
+  title?: string
+  document_id?: string | null
+}) {
+  const res = await fetch(`${API_URL}/conversations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input ?? {}),
+  })
+  return handle<ConversationDetail>(res)
+}
+
+export async function getConversation(id: string) {
+  const res = await fetch(`${API_URL}/conversations/${id}`)
+  return handle<ConversationDetail>(res)
+}
+
+export async function renameConversation(id: string, title: string) {
+  const res = await fetch(`${API_URL}/conversations/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+  return handle<ConversationDetail>(res)
+}
+
+export async function deleteConversation(id: string) {
+  const res = await fetch(`${API_URL}/conversations/${id}`, {
+    method: 'DELETE',
+  })
+  return handle<{ deleted: boolean; id: string }>(res)
+}
+
+export async function askInConversation(conversationId: string, query: string) {
+  const params = new URLSearchParams({ query })
+  const res = await fetch(
+    `${API_URL}/conversations/${conversationId}/ask?${params}`,
+    { method: 'POST' },
+  )
   return handle<AskResponse>(res)
 }

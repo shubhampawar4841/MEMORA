@@ -296,4 +296,24 @@ def chunk_text(text: str):
 
             cleaned_chunks.append(chunk)
 
-    return cleaned_chunks
+    # --------------------------------------------------------
+    # Apply character overlap between consecutive chunks
+    # --------------------------------------------------------
+
+    if OVERLAP_CHARS <= 0 or len(cleaned_chunks) <= 1:
+        return cleaned_chunks
+
+    overlapped = [cleaned_chunks[0]]
+
+    for i in range(1, len(cleaned_chunks)):
+        previous = overlapped[-1]
+        current = cleaned_chunks[i]
+        overlap = previous[-OVERLAP_CHARS:] if len(previous) > OVERLAP_CHARS else previous
+        merged = f"{overlap}\n{current}".strip()
+
+        if len(merged) <= MAX_CHUNK_CHARS + OVERLAP_CHARS:
+            overlapped.append(merged)
+        else:
+            overlapped.append(current)
+
+    return overlapped
