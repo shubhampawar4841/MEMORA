@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import {
-  askQuestionStream,
+  agentChatStream,
   createConversation,
   getConversation,
   type AskSource,
@@ -38,6 +38,7 @@ export function Chat({
   const [messages, setMessages] = useState<ChatMessageData[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [statusText, setStatusText] = useState<string | null>(null)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
     initialDocumentId,
   )
@@ -79,6 +80,7 @@ export function Chat({
     setMessages((m) => [...m, { role: 'user', text: question }])
     setInput('')
     setLoading(true)
+    setStatusText('Thinking…')
 
     try {
       let convoId = activeConversationId
@@ -91,33 +93,39 @@ export function Chat({
         onConversationCreated?.(convoId)
       }
 
-      let assembled = ''
+      const statuses: string[] = []
       setMessages((m) => [...m, { role: 'assistant', text: '' }])
 
-      const streamed = await askQuestionStream(
-        question,
-        selectedDocumentId ?? undefined,
-        (token) => {
-          assembled += token
+      const result = await agentChatStream(question, {
+        documentId: selectedDocumentId,
+        conversationId: convoId,
+        onStatus: (status) => {
+          statuses.push(status)
+          setStatusText(status)
+          const preview =
+            statuses.length > 0
+              ? statuses.map((s) => `• ${s}`).join('\n')
+              : status
           setMessages((m) => {
             const next = [...m]
             const last = next[next.length - 1]
             if (last?.role === 'assistant') {
-              next[next.length - 1] = { ...last, text: assembled }
+              next[next.length - 1] = { ...last, text: preview }
             }
             return next
           })
         },
-      )
+      })
 
+      const answer = result.message || 'No response.'
       setMessages((m) => {
         const next = [...m]
         const last = next[next.length - 1]
         if (last?.role === 'assistant') {
           next[next.length - 1] = {
             role: 'assistant',
-            text: streamed.answer,
-            sources: streamed.sources,
+            text: answer,
+            sources: result.sources,
           }
         }
         return next
@@ -128,8 +136,8 @@ export function Chat({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_content: question,
-          assistant_content: streamed.answer,
-          sources: streamed.sources,
+          assistant_content: answer,
+          sources: result.sources ?? [],
         }),
       })
 
@@ -147,6 +155,7 @@ export function Chat({
       ])
     } finally {
       setLoading(false)
+      setStatusText(null)
     }
   }
 
@@ -164,7 +173,7 @@ export function Chat({
             />
           ))}
           {loading && messages[messages.length - 1]?.role !== 'assistant' && (
-            <LoadingMessage />
+            <LoadingMessage text={statusText ?? 'Working…'} />
           )}
         </div>
       )}

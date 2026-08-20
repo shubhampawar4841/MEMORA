@@ -5,3 +5,6 @@ pymupdf
 chromadb
 sentence-transformers
 groq
+firecrawl-py
+pytest
+httpx

@@ -9,6 +9,13 @@ from app.schemas.chat import (
     ConversationSummary,
     ConversationsResponse,
 )
+from app.schemas.agent import (
+    AgentChatRequest,
+    AgentChatResponse,
+    AgentStep,
+    WebIngestRequest,
+    WebIngestResponse,
+)
 from app.schemas.documents import (
     DeleteDocumentResponse,
     DocumentItem,
@@ -22,6 +29,9 @@ from app.schemas.documents import (
 from app.schemas.search import SearchResponse, SearchResultItem
 
 __all__ = [
+    "AgentChatRequest",
+    "AgentChatResponse",
+    "AgentStep",
     "AskResponse",
     "AskSource",
     "ChatAskRequest",
@@ -41,4 +51,6 @@ __all__ = [
     "SearchResultItem",
     "UploadErrorResponse",
     "UploadSuccessResponse",
+    "WebIngestRequest",
+    "WebIngestResponse",
 ]

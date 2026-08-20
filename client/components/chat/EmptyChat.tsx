@@ -2,8 +2,8 @@ import { ArrowUp, BookOpen, FileCode2, Sparkles, Zap } from 'lucide-react'
 
 const prompts = [
   'How should I structure a RAG evaluation?',
-  'Find the latest notes on Raava',
-  'Summarize my TypeScript patterns',
+  'Scrape https://example.com and tell me the title',
+  'Search the web for the latest Firecrawl documentation',
 ]
 
 type EmptyChatProps = {
@@ -24,9 +24,9 @@ export function EmptyChat({ onPrompt }: EmptyChatProps) {
       <h1>What&apos;s on your mind?</h1>
 
       <p>
-        Ask anything about your uploaded PDFs.
+        Ask about your PDFs, or send me to the web to search, scrape, and extract.
         <br />
-        I&apos;ll search your indexed knowledge and answer with sources.
+        I&apos;ll show tool progress and cite sources when answering from your knowledge base.
       </p>
 
       <div className="prompt-list">

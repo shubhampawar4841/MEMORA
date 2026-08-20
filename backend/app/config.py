@@ -8,6 +8,7 @@ load_dotenv()
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
 
 CHROMA_PATH = os.getenv(
     "CHROMA_PATH",
@@ -29,6 +30,21 @@ CHATS_PATH = os.getenv(
 EMBEDDING_MODEL_NAME = "Qwen/Qwen3-Embedding-0.6B"
 RERANKER_MODEL_NAME = "BAAI/bge-reranker-v2-m3"
 GROQ_MODEL_NAME = "openai/gpt-oss-20b"
+
+# ------------------------------------------------------------
+# Agent / Firecrawl
+# ------------------------------------------------------------
+
+MAX_AGENT_STEPS = int(os.getenv("MAX_AGENT_STEPS", "15"))
+FIRECRAWL_DEFAULT_CRAWL_LIMIT = int(
+    os.getenv("FIRECRAWL_DEFAULT_CRAWL_LIMIT", "10")
+)
+FIRECRAWL_MAX_CRAWL_LIMIT = int(
+    os.getenv("FIRECRAWL_MAX_CRAWL_LIMIT", "25")
+)
+AGENT_TOOL_CONTENT_LIMIT = int(
+    os.getenv("AGENT_TOOL_CONTENT_LIMIT", "12000")
+)
 
 
 # ------------------------------------------------------------

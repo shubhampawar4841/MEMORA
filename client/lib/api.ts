@@ -255,3 +255,139 @@ export async function askInConversation(conversationId: string, query: string) {
   )
   return handle<AskResponse>(res)
 }
+
+export type AgentStep = {
+  tool: string
+  status: string
+}
+
+export type AgentChatResponse = {
+  success: boolean
+  message: string
+  route?: string | null
+  steps: AgentStep[]
+  requires_confirmation?: boolean
+  pending_tool?: string | null
+  sources?: AskSource[]
+  document_id?: string | null
+  conversation_id?: string | null
+}
+
+export type WebIngestResponse = {
+  document_id: string | null
+  source: string | null
+  url: string | null
+  mode: string | null
+  pages: number
+  chunks: number
+  embedding_dimension: number
+  error: string | null
+}
+
+export async function agentChatStream(
+  message: string,
+  options: {
+    documentId?: string | null
+    conversationId?: string | null
+    forceWeb?: boolean
+    onStatus?: (status: string) => void
+    onRoute?: (route: string) => void
+  } = {},
+): Promise<AgentChatResponse> {
+  const res = await fetch(`${API_URL}/api/agent/chat/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message,
+      documentId: options.documentId ?? undefined,
+      conversationId: options.conversationId ?? undefined,
+      forceWeb: options.forceWeb ?? false,
+    }),
+  })
+
+  if (!res.ok || !res.body) {
+    const text = await res.text()
+    let detail = text || `Agent stream failed (${res.status})`
+    try {
+      const parsed = JSON.parse(text) as { detail?: string; message?: string }
+      detail = parsed.detail || parsed.message || detail
+    } catch {
+      // keep raw text
+    }
+    throw new Error(detail)
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let final: AgentChatResponse = {
+    success: true,
+    message: '',
+    steps: [],
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    const parts = buffer.split('\n\n')
+    buffer = parts.pop() ?? ''
+
+    for (const part of parts) {
+      const line = part
+        .split('\n')
+        .find((l) => l.startsWith('data: '))
+      if (!line) continue
+      const payload = JSON.parse(line.slice(6)) as {
+        type: string
+        message?: string
+        route?: string
+        success?: boolean
+        steps?: AgentStep[]
+        requires_confirmation?: boolean
+        pending_tool?: string | null
+        sources?: AskSource[]
+        document_id?: string | null
+        conversation_id?: string | null
+      }
+
+      if (payload.type === 'route' && payload.route) {
+        options.onRoute?.(payload.route)
+      }
+      if (payload.type === 'status' && payload.message) {
+        options.onStatus?.(payload.message)
+      }
+      if (payload.type === 'final') {
+        final = {
+          success: payload.success ?? true,
+          message: payload.message ?? '',
+          route: payload.route,
+          steps: payload.steps ?? [],
+          requires_confirmation: payload.requires_confirmation,
+          pending_tool: payload.pending_tool,
+          sources: payload.sources,
+          document_id: payload.document_id,
+          conversation_id: payload.conversation_id,
+        }
+      }
+    }
+  }
+
+  return final
+}
+
+export async function ingestWebsite(input: {
+  url: string
+  mode?: string
+  limit?: number
+  search?: string
+  documentId?: string
+}) {
+  const res = await fetch(`${API_URL}/api/agent/ingest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  return handle<WebIngestResponse>(res)
+}

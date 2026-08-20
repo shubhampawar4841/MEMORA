@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from sentence_transformers import CrossEncoder
 
 from app.config import (
@@ -6,11 +8,16 @@ from app.config import (
     SEARCH_RERANK_TOP_K,
 )
 
-print("Loading reranker...")
+_reranker: CrossEncoder | None = None
 
-reranker = CrossEncoder(RERANKER_MODEL_NAME)
 
-print("Reranker loaded.")
+def get_reranker() -> CrossEncoder:
+    global _reranker
+    if _reranker is None:
+        print(f"Loading reranker ({RERANKER_MODEL_NAME})...")
+        _reranker = CrossEncoder(RERANKER_MODEL_NAME)
+        print("Reranker loaded.")
+    return _reranker
 
 
 def rerank(
@@ -29,7 +36,7 @@ def rerank(
         return []
 
     pairs = [[query, document] for document in documents]
-    scores = reranker.predict(pairs)
+    scores = get_reranker().predict(pairs)
 
     ranked = sorted(
         enumerate(scores),

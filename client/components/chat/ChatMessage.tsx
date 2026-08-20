@@ -29,7 +29,7 @@ export function ChatMessage({ message, onCitation }: ChatMessageProps) {
         )}
       </div>
 
-      <p>{message.text}</p>
+      <p style={{ whiteSpace: 'pre-wrap' }}>{message.text}</p>
 
       {message.role === 'assistant' &&
         message.sources?.map((source, si) => (
