@@ -1,19 +1,23 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Sparkles } from 'lucide-react'
 import {
   getHome,
   listDocuments,
   type AskSource,
   type DocumentItem,
 } from '@/lib/api'
+import { Activity } from '@/components/activity/Activity'
 import { Chat } from '@/components/chat/Chat'
+import { ChatsManager } from '@/components/chats/ChatsManager'
 import { Knowledge } from '@/components/knowledge/Knowledge'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Topbar } from '@/components/layout/Topbar'
+import { Memory } from '@/components/memory/Memory'
 import { Overview } from '@/components/overview/Overview'
 import { Overlay, type OverlayType } from '@/components/overlays/Overlay'
+import { SearchPage } from '@/components/search/SearchPage'
+import { Settings } from '@/components/settings/Settings'
 
 export default function Page() {
   const [active, setActive] = useState('overview')
@@ -27,9 +31,12 @@ export default function Page() {
   const [citation, setCitation] = useState<AskSource | null>(null)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [chatDocumentId, setChatDocumentId] = useState<string | null>(null)
+  const [chatSeed, setChatSeed] = useState<string | null>(null)
   const [searchDocumentId, setSearchDocumentId] = useState<string | null>(null)
   const [searchDocumentLabel, setSearchDocumentLabel] = useState<string | null>(null)
   const [conversationRefresh, setConversationRefresh] = useState(0)
+  const [memoryQuery, setMemoryQuery] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState<string | null>(null)
 
   const refreshDocuments = useCallback(async () => {
     setDocsLoading(true)
@@ -63,6 +70,24 @@ export default function Page() {
   }, [refreshDocuments])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('integrations') !== 'connected') return
+    const provider = params.get('provider') || 'integration'
+    setActive('knowledge')
+    setApiMessage(
+      `${provider} connected via Supermemory. Sync may take a few minutes — then ask in Chat.`,
+    )
+    setApiOk(true)
+    window.history.replaceState({}, '', window.location.pathname)
+  }, [])
+
+  const navigate = useCallback((v: string) => {
+    setActive(v)
+    setMobile(false)
+  }, [])
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
@@ -74,6 +99,7 @@ export default function Page() {
         e.preventDefault()
         setConversationId(null)
         setChatDocumentId(null)
+        setChatSeed(null)
         setActive('chat')
       }
     }
@@ -82,32 +108,47 @@ export default function Page() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const navigate = (v: string) => {
-    if (v === 'search') {
-      setSearchDocumentId(null)
-      setSearchDocumentLabel(null)
-      setModal('search')
-      setMobile(false)
-      return
-    }
-
-    setActive(v)
-    setMobile(false)
-  }
-
   const openCitation = (source: AskSource) => {
     setCitation(source)
     setModal('citation')
   }
 
+  const openMemory = (q: string) => {
+    setMemoryQuery(q)
+    setActive('memory')
+    setMobile(false)
+  }
+
+  const openSearchPage = (q?: string) => {
+    setSearchQuery(q || null)
+    setActive('search')
+    setMobile(false)
+    setModal(null)
+  }
+
+  const openChatWith = (q: string, documentId?: string | null) => {
+    setConversationId(null)
+    setChatDocumentId(documentId ?? null)
+    setChatSeed(q)
+    setActive('chat')
+    setMobile(false)
+  }
+
   const sidebarProps = {
     active,
-    onNavigate: navigate,
+    onNavigate: (v: string) => {
+      if (v === 'search') {
+        openSearchPage()
+        return
+      }
+      navigate(v)
+    },
     onUpload: () => setModal('upload'),
     activeConversationId: conversationId,
     onSelectConversation: (id: string | null) => {
       setConversationId(id)
       setChatDocumentId(null)
+      setChatSeed(null)
     },
     refreshToken: conversationRefresh,
   }
@@ -140,7 +181,10 @@ export default function Page() {
               documents={documents}
               apiOk={apiOk}
               apiMessage={apiMessage}
-              onNavigate={navigate}
+              onNavigate={(v) => {
+                if (v === 'search') openSearchPage()
+                else navigate(v)
+              }}
               onCitation={openCitation}
             />
           )}
@@ -151,11 +195,29 @@ export default function Page() {
               onCitation={openCitation}
               conversationId={conversationId}
               initialDocumentId={chatDocumentId}
+              initialPrompt={chatSeed}
+              onExploreMemory={openMemory}
               onConversationCreated={(id) => {
                 setConversationId(id)
                 setConversationRefresh((n) => n + 1)
               }}
               onConversationUpdated={() => setConversationRefresh((n) => n + 1)}
+            />
+          )}
+
+          {active === 'memory' && (
+            <Memory
+              initialQuery={memoryQuery}
+              onAskChat={(q) => openChatWith(q)}
+              onOpenSearch={(q) => openSearchPage(q)}
+            />
+          )}
+
+          {active === 'search' && (
+            <SearchPage
+              initialQuery={searchQuery}
+              onAskChat={openChatWith}
+              onExploreMemory={openMemory}
             />
           )}
 
@@ -169,6 +231,7 @@ export default function Page() {
               onChatDocument={(doc) => {
                 setConversationId(null)
                 setChatDocumentId(doc.document_id)
+                setChatSeed(null)
                 setActive('chat')
               }}
               onSearchDocument={(doc) => {
@@ -179,24 +242,28 @@ export default function Page() {
             />
           )}
 
-          {active !== 'overview' &&
-            active !== 'chat' &&
-            active !== 'knowledge' && (
-              <div className="content-page">
-                <div className="page-heading">
-                  <div>
-                    <span className="eyebrow">WORKSPACE</span>
-                    <h1>{active[0].toUpperCase() + active.slice(1)}</h1>
-                    <p>This area is ready for your knowledge workflow.</p>
-                  </div>
-                </div>
-                <div className="empty-panel">
-                  <Sparkles size={21} />
-                  <h2>Coming together in your vault</h2>
-                  <p>Use the sidebar to return to chat or knowledge sources.</p>
-                </div>
-              </div>
-            )}
+          {active === 'chats' && (
+            <ChatsManager
+              activeConversationId={conversationId}
+              refreshToken={conversationRefresh}
+              onOpenChat={(id) => {
+                setConversationId(id)
+                setChatDocumentId(null)
+                setChatSeed(null)
+                setActive('chat')
+              }}
+              onClearedActive={() => setConversationId(null)}
+            />
+          )}
+
+          {active === 'activity' && (
+            <Activity
+              onOpenKnowledge={() => navigate('knowledge')}
+              onExploreMemory={openMemory}
+            />
+          )}
+
+          {active === 'settings' && <Settings apiOk={apiOk} />}
         </div>
       </div>
 
@@ -208,6 +275,7 @@ export default function Page() {
           citation={citation}
           searchDocumentId={searchDocumentId}
           searchDocumentLabel={searchDocumentLabel}
+          onOpenFullSearch={(q) => openSearchPage(q)}
         />
       )}
     </main>

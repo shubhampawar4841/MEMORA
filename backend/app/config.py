@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -45,6 +46,17 @@ FIRECRAWL_MAX_CRAWL_LIMIT = int(
 AGENT_TOOL_CONTENT_LIMIT = int(
     os.getenv("AGENT_TOOL_CONTENT_LIMIT", "12000")
 )
+FIRECRAWL_MCP_URL = os.getenv(
+    "FIRECRAWL_MCP_URL",
+    "https://mcp.firecrawl.dev/v2/mcp",
+)
+FIRECRAWL_MCP_TIMEOUT = float(os.getenv("FIRECRAWL_MCP_TIMEOUT", "60"))
+FIRECRAWL_MCP_SSE_READ_TIMEOUT = float(
+    os.getenv("FIRECRAWL_MCP_SSE_READ_TIMEOUT", "300")
+)
+AGENT_CONTEXT_CHAR_LIMIT = int(
+    os.getenv("AGENT_CONTEXT_CHAR_LIMIT", "12000")
+)
 
 
 # ------------------------------------------------------------
@@ -80,6 +92,85 @@ USE_HYBRID_SEARCH = os.getenv(
     "true",
     "yes",
 }
+
+# BGE cross-encoder + Qwen in one Windows process often segfaults.
+# Default off on win32; set USE_CROSS_ENCODER=true to force-enable.
+USE_CROSS_ENCODER = os.getenv(
+    "USE_CROSS_ENCODER",
+    "false" if sys.platform == "win32" else "true",
+).lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
+
+# ------------------------------------------------------------
+# RAG provider (local | supermemory | both)
+# ------------------------------------------------------------
+
+# Local Chroma/Qwen/BGE path — kept in codebase but disabled by default
+# for faster startup and Supermemory-first operation.
+LOCAL_RAG_ENABLED = os.getenv(
+    "LOCAL_RAG_ENABLED",
+    "false",
+).lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
+RAG_PROVIDER = os.getenv(
+    "RAG_PROVIDER",
+    "supermemory" if not LOCAL_RAG_ENABLED else "local",
+).strip().lower()
+
+if RAG_PROVIDER not in {"local", "supermemory", "both"}:
+    RAG_PROVIDER = "supermemory" if not LOCAL_RAG_ENABLED else "local"
+
+# When local RAG is disabled, never use local/both even if misconfigured.
+if not LOCAL_RAG_ENABLED and RAG_PROVIDER in {"local", "both"}:
+    RAG_PROVIDER = "supermemory"
+
+SUPERMEMORY_API_KEY = os.getenv("SUPERMEMORY_API_KEY", "").strip() or None
+
+SUPERMEMORY_BASE_URL = os.getenv(
+    "SUPERMEMORY_BASE_URL",
+    "https://api.supermemory.ai",
+).rstrip("/")
+
+# Default end-user id for single-tenant / local use.
+# Connectors + uploads share container tag user_<NERVA_USER_ID>
+# unless SUPERMEMORY_CONTAINER_TAG is set explicitly.
+NERVA_USER_ID = os.getenv("NERVA_USER_ID", "default").strip() or "default"
+
+_sm_tag_override = os.getenv("SUPERMEMORY_CONTAINER_TAG", "").strip()
+if _sm_tag_override:
+    SUPERMEMORY_CONTAINER_TAG = _sm_tag_override
+else:
+    _uid = "".join(
+        ch if ch.isalnum() or ch in "_:-" else "_"
+        for ch in NERVA_USER_ID
+    ).strip("_") or "default"
+    SUPERMEMORY_CONTAINER_TAG = f"user_{_uid}"
+
+# Where Supermemory redirects after Gmail/GitHub OAuth.
+# Use your frontend URL (e.g. http://localhost:3000/?integrations=connected).
+CONNECTIONS_REDIRECT_URL = os.getenv(
+    "CONNECTIONS_REDIRECT_URL",
+    "http://localhost:3000/?integrations=connected",
+).strip()
+
+# Only meaningful when LOCAL_RAG_ENABLED=true.
+RAG_FALLBACK_TO_LOCAL = os.getenv(
+    "RAG_FALLBACK_TO_LOCAL",
+    "false" if not LOCAL_RAG_ENABLED else "true",
+).lower() in {
+    "1",
+    "true",
+    "yes",
+} and LOCAL_RAG_ENABLED
+
 
 
 # ------------------------------------------------------------

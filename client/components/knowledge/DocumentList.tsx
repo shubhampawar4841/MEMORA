@@ -11,6 +11,7 @@ type DocumentListProps = {
   onDelete: (document: DocumentItem) => void
   onReindex: (document: DocumentItem) => void
   onRename: (document: DocumentItem) => void
+  onMoveFolder: (document: DocumentItem) => void
 }
 
 export function DocumentList({
@@ -22,12 +23,13 @@ export function DocumentList({
   onDelete,
   onReindex,
   onRename,
+  onMoveFolder,
 }: DocumentListProps) {
   return (
     <div className="source-table">
       <div className="table-head">
-        <span>Source</span>
-        <span>Type</span>
+        <span>Title</span>
+        <span>Folder</span>
         <span>Chunks</span>
         <span>Actions</span>
       </div>
@@ -50,7 +52,7 @@ export function DocumentList({
             <FileIcon color="violet" />
             <div>
               <strong>No documents yet</strong>
-              <small>Upload a PDF to get started</small>
+              <small>Upload a document to get started</small>
             </div>
           </div>
         </div>
@@ -67,6 +69,7 @@ export function DocumentList({
             onDelete={onDelete}
             onReindex={onReindex}
             onRename={onRename}
+            onMoveFolder={onMoveFolder}
           />
         ))}
     </div>

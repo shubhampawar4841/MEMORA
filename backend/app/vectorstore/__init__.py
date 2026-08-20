@@ -5,6 +5,7 @@ from app.vectorstore.chroma import (
     list_documents,
     rename_document_source,
     search,
+    update_document_metadata,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "list_documents",
     "rename_document_source",
     "search",
+    "update_document_metadata",
 ]

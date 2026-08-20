@@ -12,6 +12,7 @@ type OverlayProps = {
   citation: AskSource | null
   searchDocumentId?: string | null
   searchDocumentLabel?: string | null
+  onOpenFullSearch?: (q: string) => void
 }
 
 export function Overlay({
@@ -21,6 +22,7 @@ export function Overlay({
   citation,
   searchDocumentId = null,
   searchDocumentLabel = null,
+  onOpenFullSearch,
 }: OverlayProps) {
   if (type === 'upload') {
     return <UploadModal onClose={onClose} onUploaded={onUploaded} />
@@ -32,6 +34,7 @@ export function Overlay({
         onClose={onClose}
         documentId={searchDocumentId}
         documentLabel={searchDocumentLabel}
+        onOpenFullSearch={onOpenFullSearch}
       />
     )
   }

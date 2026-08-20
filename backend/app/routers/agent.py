@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from app.agent.orchestrator import iter_agent_events, run_agent
 from app.agent.planner import plan_route
 from app.config import MIN_RERANK_SCORE
+from app.routers.chat import _run_ask
 from app.schemas.agent import (
     AgentChatRequest,
     AgentChatResponse,
@@ -17,9 +18,9 @@ from app.schemas.agent import (
     WebIngestResponse,
 )
 from app.services import conversations as conversation_service
+from app.services import documents as document_service
 from app.services.retrieval import build_ask_context, retrieve_for_ask
 from app.services.web_ingest import ingest_web_content
-from app.routers.chat import _run_ask
 
 logger = logging.getLogger("nerva.agent.api")
 
@@ -41,8 +42,36 @@ def _history_from_conversation(conversation_id: str | None) -> list[dict[str, st
     ]
 
 
-def _rag_bundle(query: str, document_id: str | None):
-    ranked = retrieve_for_ask(query, document_id)
+def _plan_scope(plan: dict) -> tuple[str | None, list[str] | None, str | None]:
+    """
+    Resolve retrieval scope from planner output.
+
+    Preference: explicit document_ids > single document_id > folder.
+    """
+    document_ids = plan.get("document_ids") or []
+    folder = plan.get("folder")
+    if document_ids:
+        if len(document_ids) == 1:
+            return document_ids[0], None, None
+        return None, document_ids, None
+    if folder:
+        return None, None, folder
+    return None, None, None
+
+
+def _rag_bundle(
+    query: str,
+    document_id: str | None,
+    *,
+    document_ids: list[str] | None = None,
+    folder: str | None = None,
+):
+    ranked = retrieve_for_ask(
+        query,
+        document_id=document_id,
+        document_ids=document_ids,
+        folder=folder,
+    )
     if not ranked:
         return None, [], None
     max_score = max(float(c["rerank_score"]) for c in ranked)
@@ -101,26 +130,51 @@ def _handle_ingest(message: str, document_id: str | None) -> AgentChatResponse:
     )
 
 
-def _run_routed(body: AgentChatRequest) -> AgentChatResponse:
-    history = body.history or _history_from_conversation(body.conversation_id)
-    plan = plan_route(
+def _make_plan(body: AgentChatRequest) -> dict:
+    docs = document_service.list_document_records()
+    return plan_route(
         body.message,
         document_id=body.document_id,
         force_web=body.force_web,
+        documents=docs,
     )
+
+
+def _run_routed(body: AgentChatRequest) -> AgentChatResponse:
+    history = body.history or _history_from_conversation(body.conversation_id)
+    plan = _make_plan(body)
     route = plan["route"]
-    logger.info("Agent route=%s reason=%s", route, plan.get("reason"))
+    scoped_id, scoped_ids, scoped_folder = _plan_scope(plan)
+
+    # Manual UI selection still wins when present.
+    if body.document_id:
+        scoped_id = body.document_id
+        scoped_ids = None
+        scoped_folder = None
+
+    logger.info(
+        "Agent route=%s reason=%s folder=%s ids=%s",
+        route,
+        plan.get("reason"),
+        scoped_folder,
+        scoped_ids or ([scoped_id] if scoped_id else []),
+    )
 
     if route == "ingest_web":
         return _handle_ingest(body.message, body.document_id)
 
     if route == "rag":
-        result = _run_ask(body.message, body.document_id)
+        result = _run_ask(
+            body.message,
+            scoped_id,
+            document_ids=scoped_ids,
+            folder=scoped_folder,
+        )
         return AgentChatResponse(
             success=True,
             message=result["answer"],
             route="rag",
-            document_id=result.get("document_id"),
+            document_id=result.get("document_id") or scoped_id,
             sources=result.get("sources") or [],
             steps=[{"tool": "rag_retrieve", "status": "completed"}],
         )
@@ -128,13 +182,23 @@ def _run_routed(body: AgentChatRequest) -> AgentChatResponse:
     rag_context = None
     sources: list = []
     if route == "hybrid":
-        rag_context, sources, _ = _rag_bundle(body.message, body.document_id)
+        rag_context, sources, _ = _rag_bundle(
+            body.message,
+            scoped_id,
+            document_ids=scoped_ids,
+            folder=scoped_folder,
+        )
 
     agent_result = run_agent(
         body.message,
         history=history,
         rag_context=rag_context,
+        document_id=scoped_id or body.document_id,
+        route=route,
     )
+
+    agent_sources = agent_result.get("sources") or []
+    merged_sources = sources or agent_sources
 
     return AgentChatResponse(
         success=bool(agent_result.get("success", True)),
@@ -147,8 +211,8 @@ def _run_routed(body: AgentChatRequest) -> AgentChatResponse:
         pending_tool=agent_result.get("pending_tool"),
         pending_arguments=agent_result.get("pending_arguments"),
         conversation_id=body.conversation_id,
-        document_id=body.document_id,
-        sources=sources,
+        document_id=scoped_id or body.document_id,
+        sources=merged_sources,
     )
 
 
@@ -160,12 +224,14 @@ async def agent_chat(body: AgentChatRequest):
 @router.post("/chat/stream")
 async def agent_chat_stream(body: AgentChatRequest):
     history = body.history or _history_from_conversation(body.conversation_id)
-    plan = plan_route(
-        body.message,
-        document_id=body.document_id,
-        force_web=body.force_web,
-    )
+    plan = _make_plan(body)
     route = plan["route"]
+    scoped_id, scoped_ids, scoped_folder = _plan_scope(plan)
+
+    if body.document_id:
+        scoped_id = body.document_id
+        scoped_ids = None
+        scoped_folder = None
 
     def event_generator():
         try:
@@ -195,7 +261,12 @@ async def agent_chat_stream(body: AgentChatRequest):
                     "data: "
                     f"{json.dumps({'type': 'status', 'message': 'Searching your knowledge…'})}\n\n"
                 )
-                result = _run_ask(body.message, body.document_id)
+                result = _run_ask(
+                    body.message,
+                    scoped_id,
+                    document_ids=scoped_ids,
+                    folder=scoped_folder,
+                )
                 payload = {
                     "type": "final",
                     "success": True,
@@ -203,7 +274,7 @@ async def agent_chat_stream(body: AgentChatRequest):
                     "route": "rag",
                     "steps": [{"tool": "rag_retrieve", "status": "completed"}],
                     "requires_confirmation": False,
-                    "document_id": result.get("document_id"),
+                    "document_id": result.get("document_id") or scoped_id,
                     "sources": result.get("sources") or [],
                 }
                 yield f"data: {json.dumps(payload)}\n\n"
@@ -218,20 +289,25 @@ async def agent_chat_stream(body: AgentChatRequest):
                 )
                 rag_context, sources, _ = _rag_bundle(
                     body.message,
-                    body.document_id,
+                    scoped_id,
+                    document_ids=scoped_ids,
+                    folder=scoped_folder,
                 )
 
             for event in iter_agent_events(
                 body.message,
                 history=history,
                 rag_context=rag_context,
+                document_id=scoped_id or body.document_id,
+                route=route,
             ):
                 if event.get("type") == "final":
+                    event_sources = event.get("sources") or []
                     event = {
                         **event,
                         "route": route,
-                        "sources": sources,
-                        "document_id": body.document_id,
+                        "sources": sources or event_sources,
+                        "document_id": scoped_id or body.document_id,
                         "conversation_id": body.conversation_id,
                     }
                 yield f"data: {json.dumps(event, default=str)}\n\n"

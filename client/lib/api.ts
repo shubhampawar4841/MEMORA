@@ -1,8 +1,18 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
 
+export const KNOWLEDGE_FOLDERS = [
+  'personal',
+  'work',
+  'study',
+  'other',
+] as const
+
+export type KnowledgeFolder = (typeof KNOWLEDGE_FOLDERS)[number]
+
 export type DocumentItem = {
   document_id: string
   source: string
+  folder?: KnowledgeFolder | string
   pages: number[]
   chunks: number
 }
@@ -14,6 +24,7 @@ export type AskSource = {
   distance: number
   rerank_score: number
   text?: string | null
+  folder?: string | null
 }
 
 export type AskResponse = {
@@ -32,6 +43,7 @@ export type SearchResult = {
     page?: number
     document_id?: string
     chunk_index?: number
+    folder?: string
   }
 }
 
@@ -47,6 +59,8 @@ export type UploadResponse = {
   pages: number
   chunks: number
   embedding_dimension: number
+  folder?: string
+  source?: string
   error?: string
 }
 
@@ -94,14 +108,56 @@ export async function listDocuments() {
   return handle<{ documents: DocumentItem[] }>(res)
 }
 
-export async function uploadPdf(file: File) {
+export async function uploadDocument(
+  file: File,
+  options?: { folder?: string; source?: string },
+) {
   const body = new FormData()
   body.append('file', file)
-  const res = await fetch(`${API_URL}/upload-pdf`, {
+  body.append('folder', options?.folder || 'other')
+  if (options?.source?.trim()) {
+    body.append('source', options.source.trim())
+  }
+
+  // Prefer /upload-document; fall back to /upload-pdf for older backend processes.
+  let res = await fetch(`${API_URL}/upload-document`, {
     method: 'POST',
     body,
   })
-  return handle<UploadResponse>(res)
+  if (res.status === 404) {
+    const retry = new FormData()
+    retry.append('file', file)
+    retry.append('folder', options?.folder || 'other')
+    if (options?.source?.trim()) {
+      retry.append('source', options.source.trim())
+    }
+    res = await fetch(`${API_URL}/upload-pdf`, {
+      method: 'POST',
+      body: retry,
+    })
+  }
+
+  if (!res.ok) {
+    const text = await res.text()
+    let message = text || `Request failed (${res.status})`
+    try {
+      const parsed = JSON.parse(text) as { detail?: unknown; error?: string }
+      if (typeof parsed.detail === 'string') message = parsed.detail
+      else if (parsed.error) message = parsed.error
+    } catch {
+      // keep raw text
+    }
+    throw new Error(message)
+  }
+  return res.json() as Promise<UploadResponse>
+}
+
+/** @deprecated Use uploadDocument */
+export async function uploadPdf(
+  file: File,
+  options?: { folder?: string; source?: string },
+) {
+  return uploadDocument(file, options)
 }
 
 export async function deleteDocument(documentId: string) {
@@ -111,13 +167,18 @@ export async function deleteDocument(documentId: string) {
   return handle<{ document_id: string; deleted: boolean; chunks_removed: number }>(res)
 }
 
-export async function renameDocument(documentId: string, source: string) {
+export async function renameDocument(
+  documentId: string,
+  payload: { source?: string; folder?: string },
+) {
   const res = await fetch(`${API_URL}/documents/${documentId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source }),
+    body: JSON.stringify(payload),
   })
-  return handle<{ document_id: string; source: string }>(res)
+  return handle<{ document_id: string; source: string | null; folder: string }>(
+    res,
+  )
 }
 
 export async function reindexDocument(documentId: string) {
@@ -131,6 +192,7 @@ export async function reindexDocument(documentId: string) {
     chunks: number
     embedding_dimension: number
     error: string | null
+    folder?: string | null
   }>(res)
 }
 
@@ -391,3 +453,206 @@ export async function ingestWebsite(input: {
   })
   return handle<WebIngestResponse>(res)
 }
+
+// ------------------------------------------------------------
+// Supermemory connectors (Gmail / GitHub OAuth)
+// ------------------------------------------------------------
+
+export type ConnectionItem = {
+  id?: string
+  provider?: string
+  email?: string | null
+  createdAt?: string
+  documentLimit?: number | null
+  [key: string]: unknown
+}
+
+export type ConnectStartResponse = {
+  ok: boolean
+  provider: string
+  user_id: string
+  container_tag: string
+  auth_link: string
+  connection_id?: string
+  expires_in?: string
+  redirects_to?: string
+  plan_note?: string
+}
+
+export async function getConnectDefaults() {
+  const res = await fetch(`${API_URL}/connect/me`)
+  return handle<{
+    user_id: string
+    container_tag: string
+    plan_notes: Record<string, string>
+  }>(res)
+}
+
+export async function listConnections(userId?: string) {
+  const q = userId ? `?user_id=${encodeURIComponent(userId)}` : ''
+  const res = await fetch(`${API_URL}/connections${q}`)
+  return handle<{
+    ok: boolean
+    user_id?: string
+    container_tag?: string
+    connections: ConnectionItem[]
+    error?: string
+    plan_notes?: Record<string, string>
+  }>(res)
+}
+
+export async function startConnect(
+  provider: 'gmail' | 'github',
+  options?: { userId?: string; redirectUrl?: string },
+) {
+  const path =
+    provider === 'gmail' ? '/connect/gmail' : '/connect/github'
+  const redirectUrl =
+    options?.redirectUrl ||
+    `${typeof window !== 'undefined' ? window.location.origin : ''}/?integrations=connected`
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      user_id: options?.userId,
+      redirect_url: redirectUrl,
+    }),
+  })
+  return handle<ConnectStartResponse>(res)
+}
+
+export async function deleteConnection(
+  connectionId: string,
+  deleteDocuments = false,
+) {
+  const q = deleteDocuments ? '?delete_documents=true' : ''
+  const res = await fetch(
+    `${API_URL}/connections/${encodeURIComponent(connectionId)}${q}`,
+    { method: 'DELETE' },
+  )
+  return handle<{ ok: boolean; result?: unknown }>(res)
+}
+
+// ------------------------------------------------------------
+// Memory / graph / hybrid search (Supermemory)
+// ------------------------------------------------------------
+
+export type MemorySearchMode = 'hybrid' | 'memories' | 'documents'
+
+export type MemoryHit = {
+  id: string
+  text: string
+  score: number
+  kind: 'memory' | 'document' | string
+  source?: string | null
+  metadata?: Record<string, unknown>
+  related?: unknown[]
+}
+
+export type MemoryProfile = {
+  ok: boolean
+  user_id: string
+  container_tag: string
+  static: string[]
+  dynamic: string[]
+  static_count?: number
+  dynamic_count?: number
+  error?: string
+}
+
+export type MemoryGraphNode = {
+  id: string
+  label: string
+  kind: string
+  score: number
+}
+
+export type MemoryGraphEdge = {
+  id: string
+  source: string
+  target: string
+  relation: string
+}
+
+export type MemoryActivityItem = {
+  id: string
+  type: 'document' | 'connection' | string
+  title: string
+  status: string
+  at?: string | null
+  provider?: string | null
+  email?: string | null
+}
+
+export async function getMemoryProfile(userId?: string) {
+  const q = userId ? `?user_id=${encodeURIComponent(userId)}` : ''
+  const res = await fetch(`${API_URL}/memory/profile${q}`)
+  return handle<MemoryProfile>(res)
+}
+
+export async function searchMemory(input: {
+  q: string
+  mode?: MemorySearchMode
+  limit?: number
+  userId?: string
+}) {
+  const res = await fetch(`${API_URL}/memory/search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      q: input.q,
+      mode: input.mode || 'hybrid',
+      limit: input.limit ?? 10,
+      user_id: input.userId,
+    }),
+  })
+  return handle<{
+    ok: boolean
+    query: string
+    mode: string
+    results: MemoryHit[]
+    count?: number
+    container_tag?: string
+    error?: string
+  }>(res)
+}
+
+export async function getMemoryGraph(input: {
+  q: string
+  limit?: number
+  userId?: string
+}) {
+  const res = await fetch(`${API_URL}/memory/graph`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      q: input.q,
+      limit: input.limit ?? 12,
+      user_id: input.userId,
+    }),
+  })
+  return handle<{
+    ok: boolean
+    query: string
+    nodes: MemoryGraphNode[]
+    edges: MemoryGraphEdge[]
+    results: MemoryHit[]
+    container_tag?: string
+    error?: string
+  }>(res)
+}
+
+export async function getMemoryActivity(userId?: string, limit = 30) {
+  const params = new URLSearchParams()
+  if (userId) params.set('user_id', userId)
+  params.set('limit', String(limit))
+  const res = await fetch(`${API_URL}/memory/activity?${params}`)
+  return handle<{
+    ok: boolean
+    user_id: string
+    container_tag: string
+    items: MemoryActivityItem[]
+    error?: string
+  }>(res)
+}
+

@@ -1,6 +1,13 @@
 'use client'
 
-import { MessageSquare, MoreHorizontal, RefreshCw, Search, Trash2 } from 'lucide-react'
+import {
+  FolderInput,
+  MessageSquare,
+  MoreHorizontal,
+  RefreshCw,
+  Search,
+  Trash2,
+} from 'lucide-react'
 import type { DocumentItem } from '@/lib/api'
 import { FileIcon } from '@/components/ui/FileIcon'
 import { IconButton } from '@/components/ui/IconButton'
@@ -12,7 +19,13 @@ type DocumentRowProps = {
   onDelete: (document: DocumentItem) => void
   onReindex: (document: DocumentItem) => void
   onRename: (document: DocumentItem) => void
+  onMoveFolder: (document: DocumentItem) => void
   busy?: boolean
+}
+
+function folderLabel(folder?: string) {
+  const value = (folder || 'other').toLowerCase()
+  return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
 export function DocumentRow({
@@ -22,6 +35,7 @@ export function DocumentRow({
   onDelete,
   onReindex,
   onRename,
+  onMoveFolder,
   busy,
 }: DocumentRowProps) {
   return (
@@ -29,7 +43,7 @@ export function DocumentRow({
       <div className="source-name">
         <FileIcon color="amber" />
         <div>
-          <strong>{document.source ?? 'Untitled PDF'}</strong>
+          <strong>{document.source ?? 'Untitled document'}</strong>
           <small>
             {document.pages?.length ?? 0}
             {' pages · '}
@@ -40,18 +54,25 @@ export function DocumentRow({
         </div>
       </div>
 
-      <span className="type-pill amber">PDF</span>
+      <span className="type-pill amber">{folderLabel(document.folder)}</span>
       <span className="updated">{document.chunks} chunks</span>
 
-      <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-        <IconButton title="Chat with this PDF" onClick={() => onChat(document)} disabled={busy}>
+      <div className="row-actions">
+        <IconButton title="Chat with this document" onClick={() => onChat(document)} disabled={busy}>
           <MessageSquare size={15} />
         </IconButton>
-        <IconButton title="Search this PDF" onClick={() => onSearch(document)} disabled={busy}>
+        <IconButton title="Search this document" onClick={() => onSearch(document)} disabled={busy}>
           <Search size={15} />
         </IconButton>
         <IconButton title="Rename" onClick={() => onRename(document)} disabled={busy}>
           <MoreHorizontal size={15} />
+        </IconButton>
+        <IconButton
+          title="Move folder"
+          onClick={() => onMoveFolder(document)}
+          disabled={busy}
+        >
+          <FolderInput size={15} />
         </IconButton>
         <IconButton title="Re-index" onClick={() => onReindex(document)} disabled={busy}>
           <RefreshCw size={15} />

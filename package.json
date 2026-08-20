@@ -1,0 +1,13 @@
+{
+  "name": "memora",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n backend,client -c cyan,magenta \"npm run dev:backend\" \"npm run dev:client\"",
+    "dev:backend": "scripts\\dev-backend.cmd",
+    "dev:client": "npm run --prefix client dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

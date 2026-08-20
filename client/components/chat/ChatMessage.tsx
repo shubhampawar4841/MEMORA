@@ -11,9 +11,14 @@ export type ChatMessageData = {
 type ChatMessageProps = {
   message: ChatMessageData
   onCitation: (source: AskSource) => void
+  onExploreMemory?: (query: string) => void
 }
 
-export function ChatMessage({ message, onCitation }: ChatMessageProps) {
+export function ChatMessage({
+  message,
+  onCitation,
+  onExploreMemory,
+}: ChatMessageProps) {
   return (
     <div className={`message ${message.role}`}>
       <div className="message-label">
@@ -37,6 +42,7 @@ export function ChatMessage({ message, onCitation }: ChatMessageProps) {
             key={`${source.source}-${source.page}-${si}`}
             source={source}
             onClick={onCitation}
+            onExplore={onExploreMemory}
           />
         ))}
     </div>

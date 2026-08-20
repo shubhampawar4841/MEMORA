@@ -10,21 +10,36 @@ type SearchModalProps = {
   onClose: () => void
   documentId?: string | null
   documentLabel?: string | null
+  onOpenFullSearch?: (q: string) => void
 }
 
 export function SearchModal({
   onClose,
   documentId = null,
   documentLabel = null,
+  onOpenFullSearch,
 }: SearchModalProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [searchError, setSearchError] = useState<string | null>(null)
 
+  const openFull = () => {
+    const q = searchQuery.trim()
+    if (!q || !onOpenFullSearch) return
+    onOpenFullSearch(q)
+    onClose()
+  }
+
   const runSearch = async () => {
     const q = searchQuery.trim()
     if (!q || searching) return
+
+    // Prefer full Search page (hybrid memory + docs) when not doc-scoped.
+    if (!documentId && onOpenFullSearch) {
+      openFull()
+      return
+    }
 
     setSearching(true)
     setSearchError(null)
@@ -56,14 +71,30 @@ export function SearchModal({
             onKeyDown={(e) => {
               if (e.key === 'Enter') void runSearch()
             }}
-            placeholder="Search indexed chunks..."
+            placeholder={
+              documentId
+                ? 'Search indexed chunks…'
+                : 'Search memories & documents…'
+            }
           />
           <kbd>ENTER</kbd>
         </div>
 
         <div className="command-hint">
           <Command size={14} />
-          Uses POST /search{documentId ? ' (document-scoped)' : ''}
+          {documentId
+            ? 'Document-scoped chunk search'
+            : 'Enter opens full hybrid Search page'}
+          {onOpenFullSearch && !documentId ? (
+            <button
+              type="button"
+              className="filter-btn"
+              style={{ marginLeft: 8 }}
+              onClick={openFull}
+            >
+              Open Search
+            </button>
+          ) : null}
         </div>
 
         {searching && (

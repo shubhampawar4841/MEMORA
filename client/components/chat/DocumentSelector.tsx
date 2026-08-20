@@ -7,6 +7,12 @@ type DocumentSelectorProps = {
   disabled?: boolean
 }
 
+function labelFor(doc: DocumentItem) {
+  const folder = (doc.folder || 'other').toLowerCase()
+  const title = doc.source || 'Untitled'
+  return `${folder} / ${title}`
+}
+
 export function DocumentSelector({
   documents,
   selectedDocumentId,
@@ -26,7 +32,7 @@ export function DocumentSelector({
       <option value="">Search all documents</option>
       {documents.map((doc) => (
         <option key={doc.document_id} value={doc.document_id}>
-          {doc.source}
+          {labelFor(doc)}
         </option>
       ))}
     </select>

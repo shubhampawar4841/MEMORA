@@ -6,6 +6,10 @@ export const metadata: Metadata = {
   title: 'MindVault — Personal Intelligence',
   description: 'A private AI knowledge workspace for your projects, ideas, and work.',
   generator: 'v0.app',
+  // Stops Dark Reader from rewriting DOM (avoids noisy hydration dumps in `next dev`)
+  other: {
+    'darkreader-lock': '1',
+  },
   icons: {
     icon: [
       {
@@ -36,8 +40,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className="antialiased">
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <body className="antialiased" suppressHydrationWarning>
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

@@ -5,15 +5,27 @@ PDF RAG backend for Nerva.
 ## Pipeline
 
 ```text
+Query
+  → Query Planner (rag | web | hybrid | ingest_web)
+    → MCP Client Layer
+         ├─ Local RAG tools (Chroma + Qwen embeddings + BGE reranker)
+         └─ Firecrawl MCP (hosted): search / scrape / crawl (+ map / interact)
+    → Context Builder
+    → Groq
+    → Answer
+```
+
+PDF RAG (docs-only `rag` route) still uses the classic retrieve → rerank → Groq path.
+Web / hybrid routes use the MCP client layer above.
+
+PDF indexing:
+
+```text
 PDF
   → PyMuPDF text extraction
-  → Chunking
-  → Qwen embeddings (Qwen/Qwen3-Embedding-0.6B)
-  → ChromaDB
-  → Vector retrieval
-  → BGE cross-encoder reranking (BAAI/bge-reranker-v2-m3)
-  → Groq LLM (openai/gpt-oss-20b)
-  → Answer + sources
+    → Chunking
+    → Qwen embeddings (Qwen/Qwen3-Embedding-0.6B)
+    → ChromaDB
 ```
 
 ## Setup
@@ -55,7 +67,7 @@ ChromaDB data is stored locally under `data/chroma/` (no separate vector DB serv
 - `POST /api/agent/chat/stream` — agent chat with high-level status events
 - `POST /api/agent/ingest` — opt-in website → knowledge base ingest
 
-Set `FIRECRAWL_API_KEY` in `.env` for web agent tools (hosted Firecrawl API only).
+Set `FIRECRAWL_API_KEY` in `.env` for web agent tools. The agent talks to **Firecrawl MCP** at `FIRECRAWL_MCP_URL` (default `https://mcp.firecrawl.dev/v2/mcp`). Local RAG tools run in-process behind the same gateway. The `firecrawl-py` SDK remains for opt-in web → knowledge-base ingest.
 
 ## Backend layout
 
@@ -69,8 +81,11 @@ app/
   embeddings/qwen.py
   reranking/cross_encoder.py
   vectorstore/chroma.py
-  firecrawl/client.py     # hosted Firecrawl SDK wrapper
-  agent/                  # planner + tool-calling orchestrator
+  firecrawl/client.py     # SDK wrapper (ingest path)
+  mcp/firecrawl_client.py # Firecrawl hosted MCP client
+  agent/                  # planner + gateway + orchestrator + context builder
+  agent/gateway.py        # local RAG tools + Firecrawl MCP tools
+  agent/context.py        # evidence merge for Groq
   services/
     ingestion.py
     web_ingest.py         # opt-in web → Chroma

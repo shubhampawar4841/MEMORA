@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   agentChatStream,
   createConversation,
@@ -23,6 +23,8 @@ type ChatProps = {
   onCitation: (source: AskSource) => void
   conversationId: string | null
   initialDocumentId?: string | null
+  initialPrompt?: string | null
+  onExploreMemory?: (query: string) => void
   onConversationCreated?: (id: string) => void
   onConversationUpdated?: () => void
 }
@@ -32,6 +34,8 @@ export function Chat({
   onCitation,
   conversationId,
   initialDocumentId = null,
+  initialPrompt = null,
+  onExploreMemory,
   onConversationCreated,
   onConversationUpdated,
 }: ChatProps) {
@@ -45,6 +49,9 @@ export function Chat({
   const [activeConversationId, setActiveConversationId] = useState<string | null>(
     conversationId,
   )
+  // Skip one server reload after we create a convo locally, so an empty
+  // getConversation cannot wipe optimistic messages mid-send.
+  const skipLoadForIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     setActiveConversationId(conversationId)
@@ -52,11 +59,21 @@ export function Chat({
 
     if (!conversationId) {
       setMessages([])
+      if (initialPrompt?.trim()) {
+        setInput(initialPrompt.trim())
+      }
       return
     }
 
+    if (skipLoadForIdRef.current === conversationId) {
+      skipLoadForIdRef.current = null
+      return
+    }
+
+    let cancelled = false
     void getConversation(conversationId)
       .then((detail) => {
+        if (cancelled) return
         setSelectedDocumentId(detail.document_id)
         setMessages(
           detail.messages.map((m) => ({
@@ -66,8 +83,14 @@ export function Chat({
           })),
         )
       })
-      .catch(() => setMessages([]))
-  }, [conversationId, initialDocumentId])
+      .catch(() => {
+        if (!cancelled) setMessages([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [conversationId, initialDocumentId, initialPrompt])
 
   const selectedDocument = documents.find(
     (doc) => doc.document_id === selectedDocumentId,
@@ -82,6 +105,8 @@ export function Chat({
     setLoading(true)
     setStatusText('Thinking…')
 
+    let createdThisSend: string | null = null
+
     try {
       let convoId = activeConversationId
       if (!convoId) {
@@ -89,8 +114,11 @@ export function Chat({
           document_id: selectedDocumentId,
         })
         convoId = created.id
+        createdThisSend = convoId
+        skipLoadForIdRef.current = convoId
         setActiveConversationId(convoId)
-        onConversationCreated?.(convoId)
+        // Defer parent notification until after messages are persisted,
+        // otherwise page.tsx sets conversationId and reloads an empty chat.
       }
 
       const statuses: string[] = []
@@ -141,15 +169,23 @@ export function Chat({
         }),
       })
 
+      if (createdThisSend) {
+        onConversationCreated?.(createdThisSend)
+      }
       onConversationUpdated?.()
     } catch (err) {
+      if (createdThisSend) {
+        onConversationCreated?.(createdThisSend)
+      }
       setMessages((m) => [
         ...m.filter((msg) => !(msg.role === 'assistant' && msg.text === '')),
         {
           role: 'assistant',
           text:
             err instanceof Error
-              ? err.message
+              ? err.message === 'Failed to fetch'
+                ? 'Backend disconnected while answering (server may have crashed). Restart with npm run dev and try again.'
+                : err.message
               : 'Failed to get an answer from the API.',
         },
       ])
@@ -170,6 +206,7 @@ export function Chat({
               key={`${m.role}-${i}`}
               message={m}
               onCitation={onCitation}
+              onExploreMemory={onExploreMemory}
             />
           ))}
           {loading && messages[messages.length - 1]?.role !== 'assistant' && (

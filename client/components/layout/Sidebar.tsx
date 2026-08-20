@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react'
 import {
   Activity,
-  Folder,
   LayoutDashboard,
   Library,
   MessageSquare,
   MoreHorizontal,
+  Network,
   Plus,
   Search,
   Settings,
@@ -32,12 +32,20 @@ type SidebarProps = {
   refreshToken?: number
 }
 
+const RECENT_LIMIT = 5
+
 const items = [
   { label: 'Overview', icon: LayoutDashboard, id: 'overview' },
   { label: 'Chat', icon: MessageSquare, id: 'chat' },
+  { label: 'Memory', icon: Network, id: 'memory' },
   { label: 'Knowledge', icon: Library, id: 'knowledge' },
-  { label: 'Collections', icon: Folder, id: 'collections' },
+  { label: 'Search', icon: Search, id: 'search' },
 ]
+
+function truncateTitle(title: string, max = 22) {
+  const t = (title || 'Untitled').trim() || 'Untitled'
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t
+}
 
 export function Sidebar({
   active,
@@ -58,6 +66,9 @@ export function Sidebar({
   useEffect(() => {
     refresh()
   }, [refreshToken])
+
+  const recent = conversations.slice(0, RECENT_LIMIT)
+  const extra = Math.max(0, conversations.length - RECENT_LIMIT)
 
   return (
     <aside className="sidebar">
@@ -83,7 +94,7 @@ export function Sidebar({
         }}
       >
         <Plus size={16} />
-        New conversation
+        New chat
         <kbd>⌘N</kbd>
       </button>
 
@@ -98,82 +109,91 @@ export function Sidebar({
           >
             <item.icon size={17} />
             {item.label}
-            {item.id === 'chat' && <span className="online-dot" />}
+            {item.id === 'search' && <kbd>⌘K</kbd>}
           </button>
         ))}
       </nav>
 
-      <nav className="nav-group">
-        <span className="eyebrow">Conversations</span>
+      <nav className="nav-group chat-history">
+        <div className="chat-history-head">
+          <span className="eyebrow">Recent</span>
+          {conversations.length > 0 && (
+            <button
+              type="button"
+              className="chat-history-manage"
+              onClick={() => onNavigate('chats')}
+            >
+              Manage
+            </button>
+          )}
+        </div>
+
         {conversations.length === 0 && (
-          <div className="nav-item" style={{ cursor: 'default' }}>
+          <div className="nav-item muted" style={{ cursor: 'default' }}>
             No chats yet
           </div>
         )}
-        {conversations.slice(0, 8).map((c) => (
+
+        {recent.map((c) => (
           <div
             key={c.id}
-            className={`nav-item ${activeConversationId === c.id ? 'active' : ''}`}
-            style={{ justifyContent: 'space-between' }}
+            className={`chat-row ${activeConversationId === c.id ? 'active' : ''}`}
           >
             <button
               type="button"
-              style={{
-                background: 'transparent',
-                border: 0,
-                color: 'inherit',
-                textAlign: 'left',
-                flex: 1,
-                padding: 0,
-              }}
+              className="chat-row-title"
+              title={c.title || 'Untitled'}
               onClick={() => {
                 onSelectConversation(c.id)
                 onNavigate('chat')
               }}
             >
-              {c.title || 'Untitled'}
+              {truncateTitle(c.title)}
             </button>
-            <button
-              type="button"
-              className="icon-btn"
-              title="Rename"
-              onClick={() => {
-                const title = window.prompt('Rename conversation', c.title)
-                if (!title?.trim()) return
-                void renameConversation(c.id, title.trim()).then(refresh)
-              }}
-            >
-              <MoreHorizontal size={14} />
-            </button>
-            <button
-              type="button"
-              className="icon-btn"
-              title="Delete"
-              onClick={() => {
-                if (!window.confirm('Delete this conversation?')) return
-                void deleteConversation(c.id).then(() => {
-                  if (activeConversationId === c.id) onSelectConversation(null)
-                  refresh()
-                })
-              }}
-            >
-              <Trash2 size={14} />
-            </button>
+            <div className="chat-row-actions">
+              <button
+                type="button"
+                className="icon-btn"
+                title="Rename"
+                onClick={() => {
+                  const title = window.prompt('Rename conversation', c.title)
+                  if (!title?.trim()) return
+                  void renameConversation(c.id, title.trim()).then(refresh)
+                }}
+              >
+                <MoreHorizontal size={13} />
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                title="Delete"
+                onClick={() => {
+                  if (!window.confirm('Delete this conversation?')) return
+                  void deleteConversation(c.id).then(() => {
+                    if (activeConversationId === c.id) onSelectConversation(null)
+                    refresh()
+                  })
+                }}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
           </div>
         ))}
+
+        {extra > 0 && (
+          <button
+            type="button"
+            className="chat-history-more"
+            onClick={() => onNavigate('chats')}
+          >
+            +{extra} more — manage all
+          </button>
+        )}
       </nav>
 
       <nav className="nav-group">
         <span className="eyebrow">Sources</span>
-        <button
-          type="button"
-          className={`nav-item ${active === 'search' ? 'active' : ''}`}
-          onClick={() => onNavigate('search')}
-        >
-          <Search size={17} />
-          Search
-          <kbd>⌘K</kbd>
-        </button>
         <button type="button" className="nav-item" onClick={onUpload}>
           <Upload size={17} />
           Add knowledge
@@ -183,7 +203,7 @@ export function Sidebar({
       <div className="sidebar-bottom">
         <button
           type="button"
-          className="nav-item"
+          className={`nav-item ${active === 'activity' ? 'active' : ''}`}
           onClick={() => onNavigate('activity')}
         >
           <Activity size={17} />
@@ -191,7 +211,7 @@ export function Sidebar({
         </button>
         <button
           type="button"
-          className="nav-item"
+          className={`nav-item ${active === 'settings' ? 'active' : ''}`}
           onClick={() => onNavigate('settings')}
         >
           <Settings size={17} />
@@ -203,7 +223,6 @@ export function Sidebar({
             <strong>Shubham</strong>
             <span>Personal workspace</span>
           </div>
-          <MoreHorizontal size={17} />
         </div>
       </div>
     </aside>

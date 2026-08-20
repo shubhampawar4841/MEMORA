@@ -3,12 +3,15 @@
 import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import {
+  KNOWLEDGE_FOLDERS,
   deleteDocument,
   reindexDocument,
   renameDocument,
   type DocumentItem,
+  type KnowledgeFolder,
 } from '@/lib/api'
 import { DocumentList } from '@/components/knowledge/DocumentList'
+import { IntegrationsPanel } from '@/components/knowledge/IntegrationsPanel'
 import { KnowledgeStats } from '@/components/knowledge/KnowledgeStats'
 import { KnowledgeToolbar } from '@/components/knowledge/KnowledgeToolbar'
 
@@ -32,16 +35,18 @@ export function Knowledge({
   onSearchDocument,
 }: KnowledgeProps) {
   const [query, setQuery] = useState('')
+  const [folderFilter, setFolderFilter] = useState('all')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  const filtered = useMemo(
-    () =>
-      documents.filter((d) =>
-        (d.source ?? '').toLowerCase().includes(query.toLowerCase()),
-      ),
-    [documents, query],
-  )
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase()
+    return documents.filter((d) => {
+      const folder = (d.folder || 'other').toLowerCase()
+      if (folderFilter !== 'all' && folder !== folderFilter) return false
+      return (d.source ?? '').toLowerCase().includes(q)
+    })
+  }, [documents, query, folderFilter])
 
   const totalChunks = documents.reduce(
     (sum, d) => sum + (d.chunks ?? 0),
@@ -67,7 +72,10 @@ export function Knowledge({
         <div>
           <span className="eyebrow">YOUR SECOND BRAIN</span>
           <h1>Knowledge</h1>
-          <p>PDFs indexed in your Nerva backend.</p>
+          <p>
+            Uploads and Supermemory connectors (Gmail, GitHub) in one knowledge
+            base.
+          </p>
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
@@ -81,6 +89,8 @@ export function Knowledge({
         </div>
       </div>
 
+      <IntegrationsPanel />
+
       <KnowledgeStats
         documentCount={documents.length}
         totalChunks={totalChunks}
@@ -88,7 +98,12 @@ export function Knowledge({
         error={error ?? actionError}
       />
 
-      <KnowledgeToolbar query={query} onQueryChange={setQuery} />
+      <KnowledgeToolbar
+        query={query}
+        onQueryChange={setQuery}
+        folder={folderFilter}
+        onFolderChange={setFolderFilter}
+      />
 
       <DocumentList
         documents={filtered}
@@ -112,7 +127,22 @@ export function Knowledge({
           void run(doc.document_id, async () => {
             const next = window.prompt('Rename document', doc.source ?? '')
             if (!next?.trim()) return
-            await renameDocument(doc.document_id, next.trim())
+            await renameDocument(doc.document_id, { source: next.trim() })
+          })
+        }
+        onMoveFolder={(doc) =>
+          void run(doc.document_id, async () => {
+            const choices = KNOWLEDGE_FOLDERS.join(', ')
+            const next = window.prompt(
+              `Move to folder (${choices})`,
+              doc.folder || 'other',
+            )
+            if (!next?.trim()) return
+            const folder = next.trim().toLowerCase() as KnowledgeFolder
+            if (!KNOWLEDGE_FOLDERS.includes(folder)) {
+              throw new Error(`Folder must be one of: ${choices}`)
+            }
+            await renameDocument(doc.document_id, { folder })
           })
         }
       />

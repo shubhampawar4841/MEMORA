@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import json
+import sys
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -28,78 +31,162 @@ INSUFFICIENT = (
 )
 
 
+# ============================================================
+# SAFE UTF-8 LOGGING
+# ============================================================
+
+def _safe_print(value: object = "") -> None:
+    """
+    Safely print text on Windows.
+
+    Some PDFs contain Unicode characters that Windows cp1252
+    cannot encode. A normal print() can therefore crash the
+    entire request.
+
+    This function guarantees that diagnostic logging will never
+    crash the application because of an encoding issue.
+    """
+
+    text = str(value)
+
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+
+        try:
+            safe_text = text.encode(
+                encoding,
+                errors="replace",
+            ).decode(
+                encoding,
+                errors="replace",
+            )
+            print(safe_text)
+        except Exception:
+            # Last-resort fallback.
+            print(
+                text.encode(
+                    "ascii",
+                    errors="replace",
+                ).decode(
+                    "ascii",
+                    errors="replace",
+                )
+            )
+
+
 def _print_retrieval_debug(ranked):
     """
     Print the final chunks that survived retrieval + reranking.
 
     This is temporary diagnostic logging so we can determine
-    whether relevant information is being removed before generation.
+    whether relevant information is being removed before
+    generation.
+
+    IMPORTANT:
+    Never use raw print() for retrieved PDF text.
+    PDF text may contain characters that Windows cp1252
+    cannot encode.
     """
 
-    print("\n========== RETRIEVAL DEBUG ==========")
+    _safe_print("\n========== RETRIEVAL DEBUG ==========")
 
     if not ranked:
-        print("No ranked chunks returned.")
-        print("========== END RETRIEVAL DEBUG ==========\n")
+        _safe_print("No ranked chunks returned.")
+        _safe_print("========== END RETRIEVAL DEBUG ==========\n")
         return
 
     for rank, chunk in enumerate(ranked, start=1):
 
         metadata = chunk.get("metadata") or {}
 
-        print(f"\n--- Rank {rank} ---")
+        _safe_print(f"\n--- Rank {rank} ---")
 
-        print(
-            f"Rerank score: "
-            f"{float(chunk.get('rerank_score', 0.0)):.4f}"
+        try:
+            rerank_score = float(
+                chunk.get("rerank_score", 0.0)
+            )
+        except (TypeError, ValueError):
+            rerank_score = 0.0
+
+        _safe_print(
+            f"Rerank score: {rerank_score:.4f}"
         )
 
-        print(
-            f"Distance: "
-            f"{float(chunk.get('distance', 0.0)):.4f}"
+        try:
+            distance = float(
+                chunk.get("distance", 0.0)
+            )
+        except (TypeError, ValueError):
+            distance = 0.0
+
+        _safe_print(
+            f"Distance: {distance:.4f}"
         )
 
-        print(
-            f"Source: "
-            f"{metadata.get('source')}"
+        _safe_print(
+            f"Source: {metadata.get('source')}"
         )
 
-        print(
-            f"Page: "
-            f"{metadata.get('page')}"
+        _safe_print(
+            f"Page: {metadata.get('page')}"
         )
 
-        print(
-            f"Chunk: "
-            f"{metadata.get('chunk_index')}"
+        _safe_print(
+            f"Chunk: {metadata.get('chunk_index')}"
         )
 
         text = chunk.get("text") or ""
 
-        print("Text:")
-        print(text[:1000])
+        _safe_print("Text:")
+        _safe_print(str(text)[:1000])
 
-    print("\n========== END RETRIEVAL DEBUG ==========\n")
+    _safe_print(
+        "\n========== END RETRIEVAL DEBUG ==========\n"
+    )
 
 
 def _print_context_debug(context):
     """
     Print the exact context that will be sent to Groq.
+
+    Uses safe UTF-8 logging so arbitrary PDF characters
+    cannot crash the request.
     """
 
-    print("\n========== CONTEXT DEBUG ==========")
-    print(context)
-    print("========== END CONTEXT DEBUG ==========\n")
+    _safe_print("\n========== CONTEXT DEBUG ==========")
+    _safe_print(context)
+    _safe_print("========== END CONTEXT DEBUG ==========\n")
 
+
+# ============================================================
+# NORMAL ASK
+# ============================================================
 
 def _run_ask(
     query: str,
     document_id: str | None = None,
+    *,
+    document_ids: list[str] | None = None,
+    folder: str | None = None,
 ):
+    import time
+
+    from app.config import RAG_PROVIDER
+
+    total_start = time.perf_counter()
+    _safe_print(f"RAG_PROVIDER={RAG_PROVIDER}")
+
+    retrieve_start = time.perf_counter()
     ranked = retrieve_for_ask(
         query,
-        document_id,
+        document_id=document_id,
+        document_ids=document_ids,
+        folder=folder,
     )
+    retrieve_ms = (time.perf_counter() - retrieve_start) * 1000
+    _safe_print(f"Retrieval wall time: {retrieve_ms:.0f} ms")
 
     # --------------------------------------------------------
     # TEMPORARY RETRIEVAL DEBUG
@@ -112,7 +199,7 @@ def _run_ask(
     # --------------------------------------------------------
 
     if not ranked:
-        print(
+        _safe_print(
             "No ranked chunks found. "
             "Skipping generation."
         )
@@ -133,19 +220,18 @@ def _run_ask(
         for chunk in ranked
     )
 
-    print(
-        f"Best rerank score: "
-        f"{max_score:.4f}"
+    _safe_print(
+        f"Best rerank score: {max_score:.4f}"
     )
 
-    print(
+    _safe_print(
         f"Minimum required score: "
         f"{MIN_RERANK_SCORE:.4f}"
     )
 
     if max_score < MIN_RERANK_SCORE:
 
-        print(
+        _safe_print(
             f"Low confidence ({max_score:.4f}); "
             "skipping generation."
         )
@@ -161,7 +247,7 @@ def _run_ask(
     # Build context
     # --------------------------------------------------------
 
-    print(
+    _safe_print(
         f"Reranked to {len(ranked)} chunks."
     )
 
@@ -169,7 +255,7 @@ def _run_ask(
         ranked
     )
 
-    print("Context prepared.")
+    _safe_print("Context prepared.")
 
     # --------------------------------------------------------
     # TEMPORARY CONTEXT DEBUG
@@ -181,16 +267,21 @@ def _run_ask(
     # Generate answer
     # --------------------------------------------------------
 
-    print(
+    _safe_print(
         "Sending context to Groq..."
     )
 
+    groq_start = time.perf_counter()
     answer = generate_answer(
         query,
         context,
     )
+    groq_ms = (time.perf_counter() - groq_start) * 1000
+    total_ms = (time.perf_counter() - total_start) * 1000
 
-    print(
+    _safe_print(f"Groq: {groq_ms:.0f} ms")
+    _safe_print(f"Total ask: {total_ms:.0f} ms")
+    _safe_print(
         "Answer generated."
     )
 
@@ -202,6 +293,10 @@ def _run_ask(
     }
 
 
+# ============================================================
+# ASK ENDPOINT
+# ============================================================
+
 @router.post(
     "/ask",
     response_model=AskResponse,
@@ -210,21 +305,21 @@ async def ask(
     query: str,
     document_id: str | None = None,
 ):
-    print("\n========== ASK ==========")
+    _safe_print("\n========== ASK ==========")
 
-    print(
+    _safe_print(
         f"Question: {query}"
     )
 
     if document_id:
 
-        print(
+        _safe_print(
             f"Document ID: {document_id}"
         )
 
     else:
 
-        print(
+        _safe_print(
             "Searching across all documents."
         )
 
@@ -233,12 +328,16 @@ async def ask(
         document_id,
     )
 
-    print(
+    _safe_print(
         "========== ASK COMPLETE ==========\n"
     )
 
     return result
 
+
+# ============================================================
+# STREAMING ASK
+# ============================================================
 
 @router.post(
     "/ask/stream"
@@ -247,11 +346,11 @@ async def ask_stream(
     query: str,
     document_id: str | None = None,
 ):
-    print(
+    _safe_print(
         "\n========== ASK STREAM =========="
     )
 
-    print(
+    _safe_print(
         f"Question: {query}"
     )
 
@@ -265,90 +364,150 @@ async def ask_stream(
 
     async def event_generator():
 
-        if not ranked:
+        try:
+
+            # ------------------------------------------------
+            # No retrieval results
+            # ------------------------------------------------
+
+            if not ranked:
+
+                payload = {
+                    "type": "final",
+                    "answer": INSUFFICIENT,
+                    "sources": [],
+                }
+
+                yield (
+                    f"data: "
+                    f"{json.dumps(payload, ensure_ascii=False)}\n\n"
+                )
+
+                return
+
+            # ------------------------------------------------
+            # Confidence check
+            # ------------------------------------------------
+
+            max_score = max(
+                float(chunk["rerank_score"])
+                for chunk in ranked
+            )
+
+            _safe_print(
+                f"Best rerank score: "
+                f"{max_score:.4f}"
+            )
+
+            _safe_print(
+                f"Minimum required score: "
+                f"{MIN_RERANK_SCORE:.4f}"
+            )
+
+            if max_score < MIN_RERANK_SCORE:
+
+                payload = {
+                    "type": "final",
+                    "answer": INSUFFICIENT,
+                    "sources": [],
+                }
+
+                yield (
+                    f"data: "
+                    f"{json.dumps(payload, ensure_ascii=False)}\n\n"
+                )
+
+                return
+
+            # ------------------------------------------------
+            # Build context
+            # ------------------------------------------------
+
+            context, sources = build_ask_context(
+                ranked
+            )
+
+            _safe_print("Context prepared.")
+
+            # Temporary context diagnostic
+            _print_context_debug(context)
+
+            # ------------------------------------------------
+            # Generate streaming answer
+            # ------------------------------------------------
+
+            answer_parts: list[str] = []
+
+            for token in stream_answer(
+                query,
+                context,
+            ):
+
+                answer_parts.append(
+                    token
+                )
+
+                yield (
+                    f"data: "
+                    f"{json.dumps(
+                        {
+                            'type': 'token',
+                            'token': token,
+                        },
+                        ensure_ascii=False,
+                    )}\n\n"
+                )
+
+            # ------------------------------------------------
+            # Final SSE payload
+            # ------------------------------------------------
 
             payload = {
                 "type": "final",
-                "answer": INSUFFICIENT,
-                "sources": [],
+                "answer": "".join(
+                    answer_parts
+                ),
+                "sources": sources,
             }
 
             yield (
                 f"data: "
-                f"{json.dumps(payload)}\n\n"
+                f"{json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                )}\n\n"
             )
 
-            return
+        except Exception as exc:
+            # Never allow a generator exception to disappear
+            # without sending an SSE error event.
 
-        max_score = max(
-            float(chunk["rerank_score"])
-            for chunk in ranked
-        )
-
-        print(
-            f"Best rerank score: "
-            f"{max_score:.4f}"
-        )
-
-        if max_score < MIN_RERANK_SCORE:
+            _safe_print(
+                f"Agent/chat stream failed: {exc}"
+            )
 
             payload = {
-                "type": "final",
-                "answer": INSUFFICIENT,
-                "sources": [],
+                "type": "error",
+                "error": str(exc),
             }
 
             yield (
                 f"data: "
-                f"{json.dumps(payload)}\n\n"
+                f"{json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                )}\n\n"
             )
-
-            return
-
-        context, sources = build_ask_context(
-            ranked
-        )
-
-        # Temporary context diagnostic
-        _print_context_debug(context)
-
-        answer_parts: list[str] = []
-
-        for token in stream_answer(
-            query,
-            context,
-        ):
-
-            answer_parts.append(
-                token
-            )
-
-            yield (
-                f"data: "
-                f"{json.dumps({
-                    'type': 'token',
-                    'token': token,
-                })}\n\n"
-            )
-
-        payload = {
-            "type": "final",
-            "answer": "".join(
-                answer_parts
-            ),
-            "sources": sources,
-        }
-
-        yield (
-            f"data: "
-            f"{json.dumps(payload)}\n\n"
-        )
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
     )
 
+
+# ============================================================
+# CONVERSATIONS
+# ============================================================
 
 @router.get(
     "/conversations",
@@ -455,6 +614,10 @@ def delete_conversation(
     }
 
 
+# ============================================================
+# CONVERSATION MESSAGES
+# ============================================================
+
 @router.post(
     "/conversations/{conversation_id}/messages",
     response_model=ConversationDetail,
@@ -510,6 +673,10 @@ def append_conversation_messages(
 
     return detail
 
+
+# ============================================================
+# ASK INSIDE CONVERSATION
+# ============================================================
 
 @router.post(
     "/conversations/{conversation_id}/ask",

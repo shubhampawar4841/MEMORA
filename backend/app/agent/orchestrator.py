@@ -5,9 +5,10 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
+from app.agent.context import ContextBuilder
+from app.agent.gateway import execute_tool, openai_tool_schemas, status_for, toolset_for_route
 from app.agent.prompts import AGENT_SYSTEM_PROMPT
 from app.agent.safety import gate_tool_call
-from app.agent.tools.registry import execute_tool, openai_tool_schemas, status_for
 from app.config import GROQ_MODEL_NAME, MAX_AGENT_STEPS
 from app.firecrawl.client import truncate_text
 from app.llm import client as groq_client
@@ -74,16 +75,18 @@ def run_agent(
     *,
     history: list[dict[str, str]] | None = None,
     rag_context: str | None = None,
+    document_id: str | None = None,
+    route: str = "web",
     on_status: StatusCallback | None = None,
 ) -> dict[str, Any]:
     """
-    Run the Firecrawl tool-calling loop.
-
-    Returns:
-      success, message, steps, requires_confirmation?, pending_*
+    Planner → MCP client layer (local RAG tools + Firecrawl MCP) → Context Builder → Groq.
     """
-    logger.info("Agent started")
+    logger.info("Agent started route=%s", route)
     steps: list[dict[str, str]] = []
+    context_builder = ContextBuilder()
+    if rag_context:
+        context_builder.add_rag_context(rag_context)
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": AGENT_SYSTEM_PROMPT},
@@ -94,7 +97,7 @@ def run_agent(
             {
                 "role": "system",
                 "content": (
-                    "Knowledge-base context:\n"
+                    "Knowledge-base context (prefetched):\n"
                     f"{truncate_text(rag_context, 2500)}"
                 ),
             }
@@ -113,7 +116,7 @@ def run_agent(
                 )
 
     messages.append({"role": "user", "content": message})
-    tools = openai_tool_schemas()
+    tools = openai_tool_schemas(toolset_for_route(route))
     gate_history = _history_for_gate(message, history)
 
     for step in range(MAX_AGENT_STEPS):
@@ -121,8 +124,8 @@ def run_agent(
             response = groq_client.chat.completions.create(
                 model=GROQ_MODEL_NAME,
                 messages=messages,
-                tools=tools,
-                tool_choice="auto",
+                tools=tools or None,
+                tool_choice="auto" if tools else None,
                 temperature=0.2,
                 max_tokens=800,
             )
@@ -133,6 +136,7 @@ def run_agent(
                 "message": _friendly_llm_error(exc),
                 "steps": steps,
                 "requires_confirmation": False,
+                "sources": context_builder.sources,
             }
 
         choice = response.choices[0]
@@ -162,6 +166,8 @@ def run_agent(
             for tc in tool_calls:
                 name = tc.function.name
                 arguments = _parse_arguments(tc.function.arguments)
+                if name == "rag_search" and document_id and not arguments.get("document_id"):
+                    arguments["document_id"] = document_id
                 logger.info("Tool selected: %s", name)
 
                 gate = gate_tool_call(name, arguments, gate_history)
@@ -177,6 +183,7 @@ def run_agent(
                         "requires_confirmation": True,
                         "pending_tool": gate.get("pending_tool"),
                         "pending_arguments": gate.get("pending_arguments"),
+                        "sources": context_builder.sources,
                     }
 
                 if on_status:
@@ -186,12 +193,34 @@ def run_agent(
                 status = "completed" if result.get("success") else "failed"
                 steps.append({"tool": name, "status": status})
                 logger.info("Tool completed: %s (%s)", name, status)
+                context_builder.add_tool_result(name, result)
                 _append_tool_message(messages, tc.id, name, result)
             continue
 
-        final = (assistant_message.content or "").strip()
-        if not final and finish_reason == "stop":
-            final = "I finished the task but had nothing further to report."
+        # Final answer path: inject Context Builder evidence once, then answer.
+        evidence = context_builder.as_system_message()
+        if evidence and not any(
+            m.get("role") == "system" and "Evidence gathered from tools" in (m.get("content") or "")
+            for m in messages
+        ):
+            messages.insert(1, evidence)
+            if on_status:
+                on_status("status", "Building answer from evidence…")
+            try:
+                synthesis = groq_client.chat.completions.create(
+                    model=GROQ_MODEL_NAME,
+                    messages=messages,
+                    temperature=0.2,
+                    max_tokens=800,
+                )
+                final = (synthesis.choices[0].message.content or "").strip()
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Context synthesis failed; using draft answer")
+                final = (assistant_message.content or "").strip() or _friendly_llm_error(exc)
+        else:
+            final = (assistant_message.content or "").strip()
+            if not final and finish_reason == "stop":
+                final = "I finished the task but had nothing further to report."
 
         logger.info("Agent completed (step=%s)", step + 1)
         if on_status:
@@ -202,6 +231,7 @@ def run_agent(
             "message": final,
             "steps": steps,
             "requires_confirmation": False,
+            "sources": context_builder.sources,
         }
 
     logger.warning("Agent hit MAX_AGENT_STEPS=%s", MAX_AGENT_STEPS)
@@ -213,6 +243,7 @@ def run_agent(
         ),
         "steps": steps,
         "requires_confirmation": False,
+        "sources": context_builder.sources,
     }
 
 
@@ -221,6 +252,8 @@ def iter_agent_events(
     *,
     history: list[dict[str, str]] | None = None,
     rag_context: str | None = None,
+    document_id: str | None = None,
+    route: str = "web",
 ) -> Iterator[dict[str, Any]]:
     """Yield status/final event dicts for SSE."""
     collected: list[dict[str, Any]] = []
@@ -233,6 +266,8 @@ def iter_agent_events(
         message,
         history=history,
         rag_context=rag_context,
+        document_id=document_id,
+        route=route,
         on_status=collect,
     )
 
@@ -247,4 +282,5 @@ def iter_agent_events(
         "requires_confirmation": result.get("requires_confirmation", False),
         "pending_tool": result.get("pending_tool"),
         "pending_arguments": result.get("pending_arguments"),
+        "sources": result.get("sources") or [],
     }

@@ -212,14 +212,15 @@ def test_consequential_detection_and_gate():
     assert user_confirmed([{"role": "user", "content": "Yes, go ahead"}])
 
 
+@patch("app.agent.orchestrator.openai_tool_schemas", return_value=[])
 @patch("app.agent.orchestrator.groq_client")
-def test_agent_max_steps(mock_groq):
+def test_agent_max_steps(mock_groq, _mock_schemas):
     from app.agent.orchestrator import run_agent
 
     tool_call = SimpleNamespace(
         id="call-1",
         function=SimpleNamespace(
-            name="web_search",
+            name="search",
             arguments='{"query":"x","limit":1}',
         ),
     )
@@ -234,17 +235,18 @@ def test_agent_max_steps(mock_groq):
 
     with patch(
         "app.agent.orchestrator.execute_tool",
-        return_value=ok("web_search", {"results": []}),
+        return_value=ok("search", {"results": []}),
     ):
-        result = run_agent("search forever")
+        result = run_agent("search forever", route="web")
 
     assert result["success"] is False
     assert "maximum" in result["message"].lower()
     assert mock_groq.chat.completions.create.call_count == MAX_AGENT_STEPS
 
 
+@patch("app.agent.orchestrator.openai_tool_schemas", return_value=[])
 @patch("app.agent.orchestrator.groq_client")
-def test_agent_final_answer_without_tools(mock_groq):
+def test_agent_final_answer_without_tools(mock_groq, _mock_schemas):
     from app.agent.orchestrator import run_agent
 
     assistant = SimpleNamespace(content="All done.", tool_calls=None)
@@ -253,10 +255,47 @@ def test_agent_final_answer_without_tools(mock_groq):
         choices=[choice]
     )
 
-    result = run_agent("hello")
+    result = run_agent("hello", route="web")
     assert result["success"] is True
     assert result["message"] == "All done."
     assert result["steps"] == []
+
+
+def test_gate_accepts_mcp_interact_alias():
+    blocked = gate_tool_call(
+        "interact",
+        {"scrapeId": "x", "prompt": "Submit the purchase form"},
+        [{"role": "user", "content": "Buy it"}],
+    )
+    assert blocked is not None
+
+
+def test_context_builder_merges_rag_and_tools():
+    from app.agent.context import ContextBuilder
+
+    builder = ContextBuilder(char_limit=2000)
+    builder.add_rag_context("Doc says hello.")
+    builder.add_tool_result(
+        "scrape",
+        {"success": True, "data": {"markdown": "# Page\nWorld"}},
+    )
+    text = builder.build()
+    assert "local_knowledge" in text
+    assert "World" in text
+    msg = builder.as_system_message()
+    assert msg is not None
+    assert "Evidence gathered" in msg["content"]
+
+
+@patch("app.agent.gateway.get_firecrawl_mcp")
+def test_gateway_openai_schemas_hybrid(mock_mcp):
+    from app.agent.gateway import openai_tool_schemas
+
+    schemas = openai_tool_schemas("hybrid")
+    names = {s["function"]["name"] for s in schemas}
+    assert "rag_search" in names
+    assert "search" in names
+    mock_mcp.assert_not_called()
 
 
 def test_planner_web_heuristic():

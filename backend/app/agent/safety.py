@@ -55,7 +55,7 @@ def gate_tool_call(
     Return a clarification payload if the tool call must not proceed yet.
     Return None if execution is allowed.
     """
-    if tool_name != "interact_with_page":
+    if tool_name not in {"interact_with_page", "interact", "firecrawl_interact"}:
         return None
 
     if arguments.get("stop"):

@@ -24,7 +24,7 @@ export function KnowledgeStats({
       <div>
         <span>Knowledge chunks</span>
         <strong>{totalChunks}</strong>
-        <small>Across all PDFs</small>
+        <small>Across all documents</small>
       </div>
 
       <div>

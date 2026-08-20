@@ -9,7 +9,11 @@ __pycache__/
 # Backend vector store
 /backend/data/
 backend/.venv/
-
+backend/data/
+backend/.env
+backend/node_modules
+/node_modules
+backend/.venv312
 # Frontend
 client/node_modules/
 client/.next/

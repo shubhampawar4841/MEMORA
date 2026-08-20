@@ -8,6 +8,7 @@ from app.config import (
     KEYWORD_TOP_K,
     VECTOR_TOP_K,
 )
+from app.folders import DEFAULT_FOLDER, normalize_folder
 
 client = chromadb.PersistentClient(path=CHROMA_PATH)
 
@@ -21,6 +22,55 @@ collection = client.get_or_create_collection(
 )
 
 
+def _build_where(
+    document_id: str | None = None,
+    document_ids: list[str] | None = None,
+    folder: str | None = None,
+):
+    clauses = []
+
+    if document_id:
+        clauses.append({"document_id": document_id})
+    elif document_ids:
+        ids = [str(i) for i in document_ids if i]
+        if len(ids) == 1:
+            clauses.append({"document_id": ids[0]})
+        elif ids:
+            clauses.append({"document_id": {"$in": ids}})
+
+    if folder:
+        clauses.append({"folder": normalize_folder(folder)})
+
+    if not clauses:
+        return None
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$and": clauses}
+
+
+def ensure_default_folders() -> int:
+    """Backfill missing folder metadata to 'other' (legacy chunks)."""
+    data = collection.get(include=["metadatas"])
+    ids = data.get("ids") or []
+    metadatas = data.get("metadatas") or []
+    if not ids:
+        return 0
+
+    update_ids = []
+    update_metas = []
+    for chunk_id, meta in zip(ids, metadatas):
+        meta = dict(meta or {})
+        if meta.get("folder"):
+            continue
+        meta["folder"] = DEFAULT_FOLDER
+        update_ids.append(chunk_id)
+        update_metas.append(meta)
+
+    if update_ids:
+        collection.update(ids=update_ids, metadatas=update_metas)
+    return len(update_ids)
+
+
 def add_documents(chunks, embeddings, metadata, document_id: str | None = None):
     document_id = document_id or str(uuid.uuid4())
 
@@ -28,11 +78,13 @@ def add_documents(chunks, embeddings, metadata, document_id: str | None = None):
 
     enriched_metadata = []
     for i, item in enumerate(metadata):
-        enriched_metadata.append({
+        row = {
             **item,
             "document_id": document_id,
             "chunk_index": i,
-        })
+        }
+        row["folder"] = normalize_folder(row.get("folder"))
+        enriched_metadata.append(row)
 
     collection.add(
         ids=ids,
@@ -47,10 +99,18 @@ def add_documents(chunks, embeddings, metadata, document_id: str | None = None):
     }
 
 
-def search(query_embedding, top_k=VECTOR_TOP_K, document_id=None):
-    where = None
-    if document_id:
-        where = {"document_id": document_id}
+def search(
+    query_embedding,
+    top_k=VECTOR_TOP_K,
+    document_id=None,
+    document_ids: list[str] | None = None,
+    folder: str | None = None,
+):
+    where = _build_where(
+        document_id=document_id,
+        document_ids=document_ids,
+        folder=folder,
+    )
 
     return collection.query(
         query_embeddings=[query_embedding.tolist()],
@@ -59,11 +119,23 @@ def search(query_embedding, top_k=VECTOR_TOP_K, document_id=None):
     )
 
 
-def keyword_search(query: str, top_k=KEYWORD_TOP_K, document_id=None):
+def keyword_search(
+    query: str,
+    top_k=KEYWORD_TOP_K,
+    document_id=None,
+    document_ids: list[str] | None = None,
+    folder: str | None = None,
+):
     """Simple keyword retrieval over stored chunk text."""
-    if document_id:
+    where = _build_where(
+        document_id=document_id,
+        document_ids=document_ids,
+        folder=folder,
+    )
+
+    if where:
         data = collection.get(
-            where={"document_id": document_id},
+            where=where,
             include=["documents", "metadatas"],
         )
     else:
@@ -81,7 +153,29 @@ def keyword_search(query: str, top_k=KEYWORD_TOP_K, document_id=None):
             "distances": [[]],
         }
 
-    terms = [t.lower() for t in query.split() if t.strip()]
+    stopwords = {
+        "a", "an", "the", "and", "or", "of", "to", "in", "on", "for",
+        "is", "are", "was", "were", "be", "been", "being",
+        "i", "me", "my", "you", "your", "we", "our", "they", "their",
+        "this", "that", "these", "those", "it", "its",
+        "about", "tell", "what", "which", "who", "whom", "whose",
+        "how", "when", "where", "why", "do", "does", "did", "please",
+        "with", "from", "into", "over", "under", "can", "could",
+        "would", "should", "will", "just", "also", "any", "some",
+    }
+
+    raw_terms = [
+        t.lower().strip(".,!?;:\"'()[]{}")
+        for t in query.split()
+        if t.strip()
+    ]
+    terms = [
+        t for t in raw_terms
+        if t and t not in stopwords and len(t) > 1
+    ]
+    if not terms:
+        terms = [t for t in raw_terms if t]
+
     scored = []
 
     for i, text in enumerate(documents):
@@ -106,6 +200,7 @@ def keyword_search(query: str, top_k=KEYWORD_TOP_K, document_id=None):
 
 
 def list_documents():
+    ensure_default_folders()
     data = collection.get(include=["metadatas"])
     documents = {}
 
@@ -118,6 +213,7 @@ def list_documents():
             documents[document_id] = {
                 "document_id": document_id,
                 "source": metadata.get("source"),
+                "folder": normalize_folder(metadata.get("folder")),
                 "pages": set(),
                 "chunks": 0,
             }
@@ -147,21 +243,44 @@ def delete_document_chunks(document_id: str) -> int:
     return len(ids)
 
 
-def rename_document_source(document_id: str, source: str) -> bool:
+def update_document_metadata(
+    document_id: str,
+    *,
+    source: str | None = None,
+    folder: str | None = None,
+) -> dict | None:
+    """Update source and/or folder on all chunks for a document."""
+    if source is None and folder is None:
+        return None
+
     data = collection.get(
         where={"document_id": document_id},
         include=["metadatas"],
     )
     ids = data.get("ids") or []
     if not ids:
-        return False
+        return None
 
-    metadatas = data["metadatas"]
+    metadatas = [dict(m or {}) for m in data["metadatas"]]
     for metadata in metadatas:
-        metadata["source"] = source
+        if source is not None:
+            metadata["source"] = source
+        if folder is not None:
+            metadata["folder"] = normalize_folder(folder)
 
     collection.update(ids=ids, metadatas=metadatas)
-    return True
+
+    sample = metadatas[0]
+    return {
+        "document_id": document_id,
+        "source": sample.get("source"),
+        "folder": normalize_folder(sample.get("folder")),
+    }
+
+
+def rename_document_source(document_id: str, source: str) -> bool:
+    result = update_document_metadata(document_id, source=source)
+    return result is not None
 
 
 def document_exists(document_id: str) -> bool:
