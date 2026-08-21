@@ -12,6 +12,7 @@ from app.routers import (
     health,
     memory,
     search,
+    voice,
 )
 
 
@@ -82,3 +83,4 @@ app.include_router(memory.router)
 app.include_router(search.router)
 app.include_router(chat.router)
 app.include_router(agent.router)
+app.include_router(voice.router)

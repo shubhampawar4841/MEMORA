@@ -4,9 +4,13 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+# Load backend/.env then .env.local (LiveKit local credentials)
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_BACKEND_ROOT / ".env")
+load_dotenv(_BACKEND_ROOT / ".env.local", override=True)
 load_dotenv()
 
-BACKEND_ROOT = Path(__file__).resolve().parent.parent
+BACKEND_ROOT = _BACKEND_ROOT
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
@@ -171,6 +175,17 @@ RAG_FALLBACK_TO_LOCAL = os.getenv(
     "yes",
 } and LOCAL_RAG_ENABLED
 
+
+
+# ------------------------------------------------------------
+# LiveKit voice
+# ------------------------------------------------------------
+
+LIVEKIT_URL = os.getenv("LIVEKIT_URL", "").strip() or None
+LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "").strip() or None
+LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "").strip() or None
+# Must match @server.rtc_session(agent_name=...) in app/voice/agent.py
+LIVEKIT_AGENT_NAME = "Shubham_Assistent"
 
 
 # ------------------------------------------------------------

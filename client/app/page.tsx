@@ -8,6 +8,7 @@ import {
   type DocumentItem,
 } from '@/lib/api'
 import { Activity } from '@/components/activity/Activity'
+import { Call } from '@/components/call/Call'
 import { Chat } from '@/components/chat/Chat'
 import { ChatsManager } from '@/components/chats/ChatsManager'
 import { Knowledge } from '@/components/knowledge/Knowledge'
@@ -204,6 +205,8 @@ export default function Page() {
               onConversationUpdated={() => setConversationRefresh((n) => n + 1)}
             />
           )}
+
+          {active === 'call' && <Call />}
 
           {active === 'memory' && (
             <Memory

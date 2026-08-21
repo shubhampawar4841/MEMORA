@@ -8,6 +8,7 @@ import {
   MessageSquare,
   MoreHorizontal,
   Network,
+  Phone,
   Plus,
   Search,
   Settings,
@@ -37,6 +38,7 @@ const RECENT_LIMIT = 5
 const items = [
   { label: 'Overview', icon: LayoutDashboard, id: 'overview' },
   { label: 'Chat', icon: MessageSquare, id: 'chat' },
+  { label: 'Call', icon: Phone, id: 'call' },
   { label: 'Memory', icon: Network, id: 'memory' },
   { label: 'Knowledge', icon: Library, id: 'knowledge' },
   { label: 'Search', icon: Search, id: 'search' },

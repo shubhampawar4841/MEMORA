@@ -93,6 +93,14 @@ export type ConversationDetail = {
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const text = await res.text()
+    try {
+      const data = JSON.parse(text) as { detail?: unknown }
+      if (typeof data.detail === 'string' && data.detail.trim()) {
+        throw new Error(data.detail)
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message !== text) throw err
+    }
     throw new Error(text || `Request failed (${res.status})`)
   }
   return res.json() as Promise<T>
@@ -653,6 +661,15 @@ export async function getMemoryActivity(userId?: string, limit = 30) {
     container_tag: string
     items: MemoryActivityItem[]
     error?: string
+  }>(res)
+}
+
+export async function getVoiceStatus() {
+  const res = await fetch(`${API_URL}/voice/status`)
+  return handle<{
+    configured: boolean
+    url_set: boolean
+    agent_name?: string
   }>(res)
 }
 

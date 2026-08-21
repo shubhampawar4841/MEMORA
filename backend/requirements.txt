@@ -9,3 +9,6 @@ firecrawl-py
 mcp>=1.9,<2
 pytest
 httpx
+livekit-api
+livekit-agents
+livekit-plugins-ai-coustics
