@@ -226,6 +226,15 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or None
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip() or None
 TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip() or None
 
+_telegram_webhook_override = os.getenv("TELEGRAM_WEBHOOK_URL", "").strip()
+_vercel_host = os.getenv("VERCEL_URL", "").strip()
+if _telegram_webhook_override:
+    TELEGRAM_WEBHOOK_URL = _telegram_webhook_override.rstrip("/")
+elif _vercel_host:
+    TELEGRAM_WEBHOOK_URL = f"https://{_vercel_host}/api/telegram/webhook"
+else:
+    TELEGRAM_WEBHOOK_URL = None
+
 
 # ------------------------------------------------------------
 # CORS

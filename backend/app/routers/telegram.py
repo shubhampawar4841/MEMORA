@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -11,6 +12,7 @@ from app.config import (
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID,
     TELEGRAM_WEBHOOK_SECRET,
+    TELEGRAM_WEBHOOK_URL,
 )
 from app.integrations import telegram_client
 from app.services import nerva_telegram
@@ -20,7 +22,11 @@ logger = logging.getLogger("nerva.telegram.api")
 
 router = APIRouter(prefix="/api/telegram", tags=["telegram"])
 
-_WEBHOOK_URL = "https://memora-ashen-gamma.vercel.app/api/telegram/webhook"
+def _webhook_url() -> str:
+    url = (TELEGRAM_WEBHOOK_URL or "").strip()
+    if url:
+        return url
+    return "https://YOUR_VERCEL_DOMAIN/api/telegram/webhook"
 
 
 def _validate_webhook_secret(
@@ -81,12 +87,18 @@ def telegram_setup() -> dict[str, Any]:
             'X-Telegram-Bot-Api-Secret-Token on each webhook request.'
         )
 
+    webhook_url = _webhook_url()
+    payload: dict[str, str] = {"url": webhook_url}
+    if (TELEGRAM_WEBHOOK_SECRET or "").strip():
+        payload["secret_token"] = TELEGRAM_WEBHOOK_SECRET.strip()
+    webhook_body = json.dumps(payload)
+
     return {
-        "webhook_url": _WEBHOOK_URL,
+        "webhook_url": webhook_url,
         "set_webhook_curl": (
             'curl -X POST "https://api.telegram.org/botYOUR_BOT_TOKEN/setWebhook" '
             f'-H "Content-Type: application/json" '
-            f'-d \'{{"url": "{_WEBHOOK_URL}"}}\''
+            f"-d '{webhook_body}'"
         ),
         "verify_webhook_curl": (
             'curl "https://api.telegram.org/botYOUR_BOT_TOKEN/getWebhookInfo"'
