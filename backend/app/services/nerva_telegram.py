@@ -8,10 +8,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from app.config import GROQ_MODEL_NAME, NERVA_USER_ID
+from app.config import GROQ_MODEL_NAME
 from app.integrations import telegram_client
-from app.services import memory as memory_service
 from app.supermemory import client as sm
+from app.supermemory import mcp_client as sm_mcp
 
 logger = logging.getLogger("nerva.telegram")
 
@@ -89,24 +89,10 @@ def parse_telegram_update(update: dict[str, Any]) -> TelegramInboundMessage | No
     )
 
 
-def _build_supermemory_context(results: list[dict[str, Any]]) -> str:
-    if not results:
-        return ""
-
-    parts: list[str] = []
-    for index, hit in enumerate(results[:8], start=1):
-        source = hit.get("source") or hit.get("kind") or "memory"
-        text = (hit.get("text") or "").strip()
-        if not text:
-            continue
-        parts.append(f"[{index}] ({source})\n{text}")
-    return "\n\n".join(parts)
-
-
 def _generate_answer(query: str, context: str) -> str:
     from app.llm import client
 
-    if not context.strip():
+    if not sm_mcp.has_usable_context(context):
         return (
             "I couldn't find anything relevant in your Supermemory knowledge "
             "for that question."
@@ -117,12 +103,13 @@ def _generate_answer(query: str, context: str) -> str:
 The user is Shubham. First-person phrases like "my project", "my work", and
 "what was I doing" refer to Shubham.
 
-Answer using ONLY the retrieved Supermemory context below.
+Answer using ONLY the Supermemory profile and retrieved context below
+(same sources as the Nerva voice assistant).
 Do not invent facts. If the context is insufficient, say you couldn't find it.
 Keep the answer concise and natural for Telegram (about one to four short paragraphs).
 Avoid markdown headers, bullet lists, and code blocks unless truly necessary.
 
-Retrieved context:
+Supermemory context:
 ----------------
 {context}
 ----------------
@@ -183,24 +170,22 @@ def _store_memory_note(content: str) -> tuple[bool, str]:
 
 
 def answer_from_supermemory(query: str) -> str:
-    search = memory_service.search_memory(
-        query=query,
-        mode="hybrid",
-        limit=8,
-        user_id=NERVA_USER_ID,
-    )
-    if not search.get("ok"):
-        logger.warning("Telegram Supermemory search failed")
+    if not sm_mcp.is_configured():
+        logger.warning("Telegram Supermemory MCP not configured")
         return _FRIENDLY_FAILURE
 
-    results = search.get("results") or []
-    if not results:
+    try:
+        context = sm_mcp.search_memory(query, include_profile=True)
+    except sm_mcp.SupermemoryMcpError:
+        logger.warning("Telegram Supermemory MCP search failed", exc_info=True)
+        return _FRIENDLY_FAILURE
+
+    if not sm_mcp.has_usable_context(context):
         return (
             "I couldn't find anything relevant in your Supermemory knowledge "
             "for that question."
         )
 
-    context = _build_supermemory_context(results)
     try:
         return _generate_answer(query, context)
     except Exception:

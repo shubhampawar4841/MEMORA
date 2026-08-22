@@ -116,3 +116,20 @@ async def test_remember_stores_memory(monkeypatch):
     result = await tg.process_telegram_update(update)
     assert result["ok"] is True
     assert stored == ["Memora Telegram webhook is live."]
+
+
+def test_answer_from_supermemory_uses_mcp_context(monkeypatch):
+    monkeypatch.setattr("app.services.nerva_telegram.sm_mcp.is_configured", lambda: True)
+    monkeypatch.setattr(
+        "app.services.nerva_telegram.sm_mcp.search_memory",
+        lambda query, include_profile=True: (
+            "## Profile\n- Shubham Pawar is a Software Developer Intern at Junoon LLC."
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.nerva_telegram._generate_answer",
+        lambda query, context: "Shubham works at Junoon LLC as a developer intern.",
+    )
+
+    reply = tg.answer_from_supermemory("Tell me about shubham")
+    assert "Junoon" in reply
