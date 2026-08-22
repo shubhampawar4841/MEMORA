@@ -117,6 +117,30 @@ def exchange_code_for_tokens(code: str) -> dict[str, Any]:
     return data
 
 
+def refresh_access_token(refresh_token: str) -> dict[str, Any]:
+    """Exchange a refresh token for a new Google access token."""
+    _require_config()
+    payload = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token",
+    }
+    with httpx.Client(timeout=30.0) as client:
+        response = client.post(GOOGLE_TOKEN_URL, data=payload)
+
+    if response.status_code >= 400:
+        raise GoogleOAuthError(
+            f"Token refresh failed ({response.status_code}): {response.text}"
+        )
+
+    data = response.json()
+    if not isinstance(data, dict) or not data.get("access_token"):
+        raise GoogleOAuthError("Token refresh returned no access_token.")
+
+    return data
+
+
 def fetch_google_userinfo(access_token: str) -> dict[str, Any]:
     with httpx.Client(timeout=30.0) as client:
         response = client.get(

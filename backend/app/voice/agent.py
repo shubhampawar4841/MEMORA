@@ -35,6 +35,8 @@ FIRECRAWL_MCP_URL = (
     os.getenv("FIRECRAWL_MCP_URL", "https://mcp.firecrawl.dev/v2/mcp").strip()
 )
 FIRECRAWL_API_KEY = (os.getenv("FIRECRAWL_API_KEY") or "").strip()
+GMAIL_MCP_URL = "https://gmailmcp.googleapis.com/mcp/v1"
+CALENDAR_MCP_URL = "https://calendarmcp.googleapis.com/mcp/v1"
 VOICE_AGENT_NAME = "Shubham_Assistent"
 
 VOICE_INSTRUCTIONS = """You are Nerva, Shubham's personal AI assistant and daily intelligence system.
@@ -47,7 +49,11 @@ MEMORY AND DATA
 
 Before answering questions about Shubham, his work, projects, skills, emails, GitHub activity, documents, tasks, previous context, or anything that could be stored in Supermemory, use the available Supermemory tools to retrieve relevant information.
 
-Do not immediately say that you do not have access to Shubham's data. First attempt to retrieve the information using the available Supermemory tools.
+For live Gmail questions such as recent emails, unread messages, or what someone emailed, use the Gmail tools.
+
+For live calendar questions such as today's meetings, upcoming events, or schedule conflicts, use the Calendar tools.
+
+Do not immediately say that you do not have access to Shubham's data. First attempt to retrieve the information using the available tools.
 
 Use the retrieved information to give a concise, natural answer.
 
@@ -113,7 +119,9 @@ Remember that Shubham may ask things conversationally, such as:
 
 "What happened with that project?"
 
-For these questions, use Supermemory when appropriate and answer based on retrieved information.
+For these questions, use Supermemory, Gmail, or Calendar tools when appropriate and answer based on retrieved information.
+
+Use read-only behavior for Gmail and Calendar. Do not delete emails or events, and do not send email unless Shubham explicitly asks you to send something later.
 
 Be proactive when useful. If the retrieved information clearly shows an important deadline, unanswered email, pending review, meeting, or task, mention it.
 
@@ -137,56 +145,100 @@ When relevant personal data is requested, retrieve it first and then answer usin
 """
 
 
+def _build_voice_mcp_tools() -> list[mcp.MCPToolset]:
+    tools: list[mcp.MCPToolset] = []
+
+    if SUPERMEMORY_API_KEY:
+        tools.append(
+            mcp.MCPToolset(
+                id="Supermemory",
+                mcp_server=mcp.MCPServerHTTP(
+                    url=SUPERMEMORY_MCP_URL,
+                    headers={
+                        "Authorization": f"Bearer {SUPERMEMORY_API_KEY}",
+                    },
+                ),
+            ),
+        )
+    else:
+        logger.warning(
+            "SUPERMEMORY_API_KEY not set — voice agent runs without "
+            "SuperMemory MCP tools"
+        )
+
+    if FIRECRAWL_API_KEY:
+        tools.append(
+            mcp.MCPToolset(
+                id="Firecrawl",
+                mcp_server=mcp.MCPServerHTTP(
+                    url=FIRECRAWL_MCP_URL,
+                    headers={
+                        "Authorization": f"Bearer {FIRECRAWL_API_KEY}",
+                    },
+                ),
+            ),
+        )
+    else:
+        logger.warning(
+            "FIRECRAWL_API_KEY not set — voice agent runs without "
+            "Firecrawl MCP tools"
+        )
+
+    # Google Workspace MCP uses OAuth access tokens from backend storage.
+    from app.auth.google_access import google_mcp_auth_headers
+
+    google_headers = google_mcp_auth_headers()
+    if google_headers:
+        tools.append(
+            mcp.MCPToolset(
+                id="Gmail",
+                mcp_server=mcp.MCPServerHTTP(
+                    url=GMAIL_MCP_URL,
+                    headers=google_headers,
+                    transport_type="streamable_http",
+                ),
+            ),
+        )
+        tools.append(
+            mcp.MCPToolset(
+                id="Calendar",
+                mcp_server=mcp.MCPServerHTTP(
+                    url=CALENDAR_MCP_URL,
+                    headers=google_headers,
+                    transport_type="streamable_http",
+                ),
+            ),
+        )
+        logger.info("Google Gmail/Calendar MCP enabled for voice agent")
+    else:
+        logger.warning(
+            "No valid Google OAuth token — Gmail/Calendar MCP disabled. "
+            "Sign in via Settings > Sign in with Google."
+        )
+
+    return tools
+
+
 class DefaultAgent(Agent):
     def __init__(self) -> None:
-        tools: list[mcp.MCPToolset] = []
-
-        if SUPERMEMORY_API_KEY:
-            tools.append(
-                mcp.MCPToolset(
-                    id="Supermemory",
-                    mcp_server=mcp.MCPServerHTTP(
-                        url=SUPERMEMORY_MCP_URL,
-                        headers={
-                            "Authorization": f"Bearer {SUPERMEMORY_API_KEY}",
-                        },
-                    ),
-                ),
-            )
-        else:
-            logger.warning(
-                "SUPERMEMORY_API_KEY not set — voice agent runs without "
-                "SuperMemory MCP tools"
-            )
-
-        if FIRECRAWL_API_KEY:
-            tools.append(
-                mcp.MCPToolset(
-                    id="Firecrawl",
-                    mcp_server=mcp.MCPServerHTTP(
-                        url=FIRECRAWL_MCP_URL,
-                        headers={
-                            "Authorization": f"Bearer {FIRECRAWL_API_KEY}",
-                        },
-                    ),
-                ),
-            )
-        else:
-            logger.warning(
-                "FIRECRAWL_API_KEY not set — voice agent runs without "
-                "Firecrawl MCP tools"
-            )
-
         super().__init__(
             instructions=VOICE_INSTRUCTIONS,
-            tools=tools,
+            tools=_build_voice_mcp_tools(),
         )
 
     async def on_enter(self):
+        from app.auth.google_access import get_valid_google_access_token
+
+        google_ready = bool(get_valid_google_access_token())
+        extra = (
+            " You can also check his live Gmail and Calendar when connected."
+            if google_ready
+            else ""
+        )
         await self.session.generate_reply(
             instructions=(
                 "Greet Shubham briefly as Nerva, mention you can pull from "
-                "his SuperMemory knowledge, and ask how you can help."
+                f"his SuperMemory knowledge.{extra} Ask how you can help."
             ),
             allow_interruptions=True,
         )

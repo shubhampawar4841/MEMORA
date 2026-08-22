@@ -37,9 +37,9 @@ def test_token_store_public_status(tmp_path, monkeypatch):
 
     import app.auth.token_store as token_store
 
+    reload(token_store)
     monkeypatch.setattr(token_store, "_STORE_DIR", store_dir)
     monkeypatch.setattr(token_store, "_STORE_PATH", store_file)
-    reload(token_store)
 
     status = token_store.get_google_connection_status("test-user")
     assert status["connected"] is False
@@ -62,3 +62,64 @@ def test_token_store_public_status(tmp_path, monkeypatch):
     assert status["has_refresh_token"] is True
     assert "access_token" not in status
     assert "refresh_token" not in status
+
+
+def test_get_valid_google_access_token_refreshes_when_expired(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setenv(
+        "GOOGLE_REDIRECT_URI",
+        "http://localhost:8000/auth/google/callback",
+    )
+
+    store_dir = tmp_path / "google_oauth"
+    store_dir.mkdir()
+    store_file = store_dir / "tokens.json"
+    store_file.write_text('{"users": {}}', encoding="utf-8")
+
+    from importlib import reload
+
+    import app.auth.google_access as google_access
+    import app.auth.token_store as token_store
+
+    reload(token_store)
+    monkeypatch.setattr(token_store, "_STORE_DIR", store_dir)
+    monkeypatch.setattr(token_store, "_STORE_PATH", store_file)
+    reload(google_access)
+
+    token_store.save_google_tokens(
+        user_id="test-user",
+        google_sub="sub-123",
+        email="shubham@example.com",
+        name="Shubham",
+        access_token="expired-access",
+        refresh_token="refresh-token",
+        token_type="Bearer",
+        expires_in=-10,
+        scopes=["https://www.googleapis.com/auth/gmail.readonly"],
+    )
+
+    def fake_refresh(refresh_token: str):
+        assert refresh_token == "refresh-token"
+        return {
+            "access_token": "fresh-access",
+            "expires_in": 3600,
+            "token_type": "Bearer",
+            "scope": "https://www.googleapis.com/auth/gmail.readonly",
+        }
+
+    monkeypatch.setattr(
+        google_access,
+        "refresh_access_token",
+        fake_refresh,
+    )
+
+    token = google_access.get_valid_google_access_token("test-user")
+    assert token == "fresh-access"
+
+    stored = token_store.get_google_tokens("test-user")
+    assert stored is not None
+    assert stored.access_token == "fresh-access"
+    assert stored.refresh_token == "refresh-token"
