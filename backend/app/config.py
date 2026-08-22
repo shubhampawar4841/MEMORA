@@ -4,7 +4,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load backend/.env then .env.local (LiveKit local credentials)
+# Load backend/.env then .env.local (local overrides)
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(_BACKEND_ROOT / ".env")
 load_dotenv(_BACKEND_ROOT / ".env.local", override=True)
@@ -186,6 +186,19 @@ LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "").strip() or None
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "").strip() or None
 # Must match @server.rtc_session(agent_name=...) in app/voice/agent.py
 LIVEKIT_AGENT_NAME = "Shubham_Assistent"
+
+
+# ------------------------------------------------------------
+# Google OAuth (Gmail + Calendar)
+# ------------------------------------------------------------
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip() or None
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip() or None
+GOOGLE_REDIRECT_URI = os.getenv(
+    "GOOGLE_REDIRECT_URI",
+    "http://localhost:8000/auth/google/callback",
+).strip()
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").strip().rstrip("/")
 
 
 # ------------------------------------------------------------

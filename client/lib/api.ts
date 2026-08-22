@@ -673,3 +673,23 @@ export async function getVoiceStatus() {
   }>(res)
 }
 
+export type GoogleAuthStatus = {
+  connected: boolean
+  user_id?: string
+  email?: string
+  name?: string | null
+  scopes?: string[]
+  has_refresh_token?: boolean
+  expires_at?: number | null
+  updated_at?: string
+}
+
+export function getGoogleSignInUrl() {
+  return `${API_URL}/auth/google`
+}
+
+export async function getGoogleAuthStatus() {
+  const res = await fetch(`${API_URL}/auth/google/status`)
+  return handle<GoogleAuthStatus>(res)
+}
+

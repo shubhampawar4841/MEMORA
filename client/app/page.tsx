@@ -83,6 +83,29 @@ export default function Page() {
     window.history.replaceState({}, '', window.location.pathname)
   }, [])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('google') === 'connected') {
+      const email = params.get('email')
+      setActive('settings')
+      setApiMessage(
+        email
+          ? `Google connected as ${email}. Gmail and Calendar access is stored on the backend.`
+          : 'Google connected. Gmail and Calendar access is stored on the backend.',
+      )
+      setApiOk(true)
+      window.history.replaceState({}, '', window.location.pathname)
+      return
+    }
+    if (params.get('google') === 'error') {
+      const message = params.get('message') || 'Google sign-in failed.'
+      setActive('settings')
+      setApiMessage(message)
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
+
   const navigate = useCallback((v: string) => {
     setActive(v)
     setMobile(false)

@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from 'react'
 import { ExternalLink, Settings as SettingsIcon } from 'lucide-react'
-import { getConnectDefaults, getHome } from '@/lib/api'
+import {
+  getConnectDefaults,
+  getGoogleAuthStatus,
+  getGoogleSignInUrl,
+  getHome,
+} from '@/lib/api'
 
 type Props = {
   apiOk: boolean | null
@@ -14,6 +19,8 @@ export function Settings({ apiOk }: Props) {
   const [planNotes, setPlanNotes] = useState<Record<string, string>>({})
   const [apiMessage, setApiMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [googleConnected, setGoogleConnected] = useState(false)
+  const [googleEmail, setGoogleEmail] = useState<string | null>(null)
 
   useEffect(() => {
     void getConnectDefaults()
@@ -28,6 +35,15 @@ export function Settings({ apiOk }: Props) {
     void getHome()
       .then((res) => setApiMessage(res.message))
       .catch(() => setApiMessage(null))
+    void getGoogleAuthStatus()
+      .then((res) => {
+        setGoogleConnected(Boolean(res.connected))
+        setGoogleEmail(res.email || null)
+      })
+      .catch(() => {
+        setGoogleConnected(false)
+        setGoogleEmail(null)
+      })
   }, [])
 
   return (
@@ -52,6 +68,25 @@ export function Settings({ apiOk }: Props) {
             </strong>
           </p>
           {apiMessage ? <p className="muted">{apiMessage}</p> : null}
+        </div>
+
+        <div className="settings-card">
+          <span className="eyebrow">GOOGLE</span>
+          <p>
+            Status:{' '}
+            <strong>{googleConnected ? 'Connected' : 'Not connected'}</strong>
+          </p>
+          {googleEmail ? (
+            <p className="muted">Signed in as {googleEmail}</p>
+          ) : (
+            <p className="muted">
+              Authorize Gmail and Calendar read access via Google OAuth.
+            </p>
+          )}
+          <a className="settings-link" href={getGoogleSignInUrl()}>
+            {googleConnected ? 'Reconnect Google' : 'Sign in with Google'}
+            <ExternalLink size={14} />
+          </a>
         </div>
 
         <div className="settings-card">

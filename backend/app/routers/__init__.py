@@ -1,5 +1,6 @@
 from app.routers import (
     agent,
+    auth,
     chat,
     connections,
     documents,
@@ -11,6 +12,7 @@ from app.routers import (
 
 __all__ = [
     "agent",
+    "auth",
     "chat",
     "connections",
     "documents",
