@@ -20,13 +20,27 @@ GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 
-# Minimum scopes for read/search Gmail + Calendar.
+# Scopes aligned with Google Workspace MCP server docs (read-only).
+# https://developers.google.com/workspace/guides/configure-mcp-servers
+GOOGLE_GMAIL_MCP_SCOPES: tuple[str, ...] = (
+    "https://www.googleapis.com/auth/gmail.readonly",
+)
+GOOGLE_CALENDAR_MCP_SCOPES: tuple[str, ...] = (
+    "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+    "https://www.googleapis.com/auth/calendar.events.freebusy",
+    "https://www.googleapis.com/auth/calendar.events.readonly",
+)
+# Broader scope Google may return during incremental consent; covers MCP read tools.
+GOOGLE_CALENDAR_READONLY_SCOPE = (
+    "https://www.googleapis.com/auth/calendar.readonly"
+)
+
 GOOGLE_OAUTH_SCOPES: tuple[str, ...] = (
     "openid",
     "email",
     "profile",
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/calendar.readonly",
+    *GOOGLE_GMAIL_MCP_SCOPES,
+    *GOOGLE_CALENDAR_MCP_SCOPES,
 )
 
 _state_lock = threading.Lock()
@@ -36,6 +50,26 @@ _STATE_TTL_SECONDS = 600
 
 class GoogleOAuthError(RuntimeError):
     """Raised when Google OAuth configuration or exchange fails."""
+
+
+def scope_set(scopes: list[str] | tuple[str, ...]) -> set[str]:
+    return {scope.strip() for scope in scopes if isinstance(scope, str) and scope.strip()}
+
+
+def has_gmail_mcp_scopes(scopes: list[str] | tuple[str, ...]) -> bool:
+    granted = scope_set(scopes)
+    return all(scope in granted for scope in GOOGLE_GMAIL_MCP_SCOPES)
+
+
+def has_calendar_mcp_scopes(scopes: list[str] | tuple[str, ...]) -> bool:
+    granted = scope_set(scopes)
+    if GOOGLE_CALENDAR_READONLY_SCOPE in granted:
+        return True
+    return all(scope in granted for scope in GOOGLE_CALENDAR_MCP_SCOPES)
+
+
+def has_workspace_mcp_scopes(scopes: list[str] | tuple[str, ...]) -> bool:
+    return has_gmail_mcp_scopes(scopes) and has_calendar_mcp_scopes(scopes)
 
 
 def is_configured() -> bool:

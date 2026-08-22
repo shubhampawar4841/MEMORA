@@ -35,9 +35,11 @@ FIRECRAWL_MCP_URL = (
     os.getenv("FIRECRAWL_MCP_URL", "https://mcp.firecrawl.dev/v2/mcp").strip()
 )
 FIRECRAWL_API_KEY = (os.getenv("FIRECRAWL_API_KEY") or "").strip()
-GMAIL_MCP_URL = "https://gmailmcp.googleapis.com/mcp/v1"
-CALENDAR_MCP_URL = "https://calendarmcp.googleapis.com/mcp/v1"
 VOICE_AGENT_NAME = "Shubham_Assistent"
+
+# Re-exported for greeting logic in DefaultAgent.on_enter.
+from app.voice.github_mcp_tools import LAST_GITHUB_MCP_BUILD  # noqa: E402
+from app.voice.google_mcp_tools import LAST_GOOGLE_MCP_BUILD  # noqa: E402
 
 VOICE_INSTRUCTIONS = """You are Nerva, Shubham's personal AI assistant and daily intelligence system.
 
@@ -52,6 +54,24 @@ Before answering questions about Shubham, his work, projects, skills, emails, Gi
 For live Gmail questions such as recent emails, unread messages, or what someone emailed, use the Gmail tools.
 
 For live calendar questions such as today's meetings, upcoming events, or schedule conflicts, use the Calendar tools.
+
+For live GitHub questions such as repositories, commits, pull requests, issues, GitHub Actions, or recent development activity, use the GitHub tools. Do not use Supermemory for live GitHub data when GitHub tools are available.
+
+GITHUB CONTEXT
+
+Shubham's GitHub account is shubhampawar4841. His primary repositories are:
+
+shubhampawar4841/cognito-crawl
+shubhampawar4841/Reeler
+shubhampawar4841/MEMORA
+
+When Shubham asks about GitHub, his repos, commits, pull requests, issues, Actions, or recent coding activity, prioritize shubhampawar4841 and these repositories.
+
+Never treat another user's repository as Shubham's. If he mentions cognito-crawl, Reeler, or MEMORA, resolve to the full owner/repo names above.
+
+When searching commits or activity, include owner and repo qualifiers such as shubhampawar4841/cognito-crawl instead of broad global searches whenever possible.
+
+Use read-only GitHub behavior. Do not create, update, merge, or delete GitHub resources unless Shubham explicitly asks later.
 
 Do not immediately say that you do not have access to Shubham's data. First attempt to retrieve the information using the available tools.
 
@@ -119,9 +139,9 @@ Remember that Shubham may ask things conversationally, such as:
 
 "What happened with that project?"
 
-For these questions, use Supermemory, Gmail, or Calendar tools when appropriate and answer based on retrieved information.
+For these questions, use Supermemory, Gmail, Calendar, or GitHub tools when appropriate and answer based on retrieved information.
 
-Use read-only behavior for Gmail and Calendar. Do not delete emails or events, and do not send email unless Shubham explicitly asks you to send something later.
+Use read-only behavior for Gmail, Calendar, and GitHub. Do not delete emails or events, and do not send email unless Shubham explicitly asks you to send something later.
 
 Be proactive when useful. If the retrieved information clearly shows an important deadline, unanswered email, pending review, meeting, or task, mention it.
 
@@ -184,37 +204,23 @@ def _build_voice_mcp_tools() -> list[mcp.MCPToolset]:
             "Firecrawl MCP tools"
         )
 
-    # Google Workspace MCP uses OAuth access tokens from backend storage.
-    from app.auth.google_access import google_mcp_auth_headers
+    # Google Workspace MCP: OAuth handled by FastAPI; agent uses Bearer headers only.
+    from app.auth.google_mcp_bridge import log_google_mcp_runtime_status
+    from app.voice.google_mcp_tools import build_google_mcp_toolsets
 
-    google_headers = google_mcp_auth_headers()
-    if google_headers:
-        tools.append(
-            mcp.MCPToolset(
-                id="Gmail",
-                mcp_server=mcp.MCPServerHTTP(
-                    url=GMAIL_MCP_URL,
-                    headers=google_headers,
-                    transport_type="streamable_http",
-                ),
-            ),
-        )
-        tools.append(
-            mcp.MCPToolset(
-                id="Calendar",
-                mcp_server=mcp.MCPServerHTTP(
-                    url=CALENDAR_MCP_URL,
-                    headers=google_headers,
-                    transport_type="streamable_http",
-                ),
-            ),
-        )
-        logger.info("Google Gmail/Calendar MCP enabled for voice agent")
-    else:
+    google_status = log_google_mcp_runtime_status()
+    tools.extend(build_google_mcp_toolsets(runtime_status=google_status))
+
+    if not google_status.get("google_oauth_token_available"):
         logger.warning(
-            "No valid Google OAuth token — Gmail/Calendar MCP disabled. "
-            "Sign in via Settings > Sign in with Google."
+            "Gmail/Calendar MCP disabled — sign in via Settings > Sign in with Google"
         )
+
+    from app.voice.github_mcp_tools import build_github_mcp_toolset
+
+    github_toolset = build_github_mcp_toolset()
+    if github_toolset:
+        tools.append(github_toolset)
 
     return tools
 
@@ -227,14 +233,16 @@ class DefaultAgent(Agent):
         )
 
     async def on_enter(self):
-        from app.auth.google_access import get_valid_google_access_token
-
-        google_ready = bool(get_valid_google_access_token())
-        extra = (
-            " You can also check his live Gmail and Calendar when connected."
-            if google_ready
-            else ""
-        )
+        extras: list[str] = []
+        if LAST_GOOGLE_MCP_BUILD["gmail"]:
+            extras.append("live Gmail")
+        if LAST_GOOGLE_MCP_BUILD["calendar"]:
+            extras.append("Google Calendar")
+        if LAST_GITHUB_MCP_BUILD["github"]:
+            extras.append("GitHub")
+        extra = ""
+        if extras:
+            extra = f" You can also check his {' and '.join(extras)}."
         await self.session.generate_reply(
             instructions=(
                 "Greet Shubham briefly as Nerva, mention you can pull from "

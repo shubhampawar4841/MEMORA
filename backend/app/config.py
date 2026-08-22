@@ -200,6 +200,23 @@ GOOGLE_REDIRECT_URI = os.getenv(
 ).strip()
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").strip().rstrip("/")
 
+# LiveKit worker credential bridge for Google Workspace MCP.
+# FastAPI owns OAuth; the agent only receives short-lived Bearer headers.
+GOOGLE_MCP_BRIDGE_SECRET = os.getenv("GOOGLE_MCP_BRIDGE_SECRET", "").strip() or None
+GOOGLE_MCP_BRIDGE_URL = os.getenv(
+    "GOOGLE_MCP_BRIDGE_URL",
+    "http://127.0.0.1:8000/auth/google/mcp/headers",
+).strip()
+_GOOGLE_MCP_CREDENTIAL_MODE = os.getenv(
+    "GOOGLE_MCP_CREDENTIAL_MODE",
+    "local",
+).strip().lower()
+GOOGLE_MCP_CREDENTIAL_MODE = (
+    _GOOGLE_MCP_CREDENTIAL_MODE
+    if _GOOGLE_MCP_CREDENTIAL_MODE in {"local", "api"}
+    else "local"
+)
+
 
 # ------------------------------------------------------------
 # CORS
