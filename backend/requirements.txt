@@ -1,14 +1,7 @@
+# Slim deps for Vercel serverless (Telegram + Supermemory MCP only).
+# Local full stack: pip install -r requirements-local.txt
 fastapi
-uvicorn
+mangum
 python-dotenv
-pymupdf
-chromadb
-sentence-transformers
 groq
-firecrawl-py
-mcp>=1.9,<2
-pytest
 httpx
-livekit-api
-livekit-agents
-livekit-plugins-ai-coustics

@@ -33,7 +33,7 @@ PDF
 ```bash
 python -m venv .venv
 source .venv/Scripts/activate
-pip install -r requirements.txt
+pip install -r requirements-local.txt
 ```
 
 Copy `.env.example` to `.env` and set `GROQ_API_KEY`.

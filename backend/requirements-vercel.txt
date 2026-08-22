@@ -1,5 +1,0 @@
-fastapi
-mangum
-python-dotenv
-groq
-httpx

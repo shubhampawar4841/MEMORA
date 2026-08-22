@@ -1,0 +1,17 @@
+# Full local dev stack (Chroma, embeddings, voice agent, tests).
+# Vercel deploy uses slim requirements.txt instead.
+fastapi
+uvicorn
+python-dotenv
+pymupdf
+chromadb
+sentence-transformers
+groq
+firecrawl-py
+mcp>=1.9,<2
+pytest
+httpx
+livekit-api
+livekit-agents
+livekit-plugins-ai-coustics
+mangum
