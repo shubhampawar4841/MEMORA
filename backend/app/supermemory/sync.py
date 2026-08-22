@@ -35,6 +35,7 @@ def sync_file_upload(
     source: str | None,
     folder: str | None,
     source_type: str | None = None,
+    use_container_tag: bool = True,
 ) -> dict[str, Any]:
     """
     Push the raw file to Supermemory after local catalog ingest.
@@ -65,6 +66,7 @@ def sync_file_upload(
             metadata=meta,
             task_type="superrag",
             content_type=mime_for_filename(filename),
+            use_container_tag=use_container_tag,
         )
         print(
             f"Supermemory sync OK for document_id={document_id} "
@@ -157,3 +159,25 @@ def sync_delete(document_id: str) -> dict[str, Any]:
             "deleted": False,
             "error": str(exc),
         }
+
+
+def sync_telegram_upload(
+    *,
+    file_bytes: bytes,
+    filename: str,
+    title: str | None = None,
+) -> dict[str, Any]:
+    """Upload a Telegram attachment to Supermemory (default namespace, like MCP)."""
+    import uuid
+
+    document_id = f"telegram_{uuid.uuid4().hex[:12]}"
+    display = (title or filename or document_id).strip()
+    return sync_file_upload(
+        document_id=document_id,
+        file_bytes=file_bytes,
+        filename=filename,
+        source=display,
+        folder="personal",
+        source_type=None,
+        use_container_tag=False,
+    )

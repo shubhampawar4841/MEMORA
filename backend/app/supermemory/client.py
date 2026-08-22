@@ -77,16 +77,18 @@ def upload_file(
     custom_id: str,
     metadata: dict[str, Any] | None = None,
     container_tag: str | None = None,
+    use_container_tag: bool = True,
     task_type: str = "superrag",
     content_type: str | None = None,
     timeout: float = 180.0,
 ) -> dict[str, Any]:
     """POST /v3/documents/file — document/file ingest."""
     form: dict[str, Any] = {
-        "containerTag": container_tag or SUPERMEMORY_CONTAINER_TAG,
         "customId": custom_id,
         "taskType": task_type,
     }
+    if use_container_tag:
+        form["containerTag"] = container_tag or SUPERMEMORY_CONTAINER_TAG
     if metadata:
         form["metadata"] = json.dumps(metadata)
 

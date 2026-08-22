@@ -1,4 +1,4 @@
-"""Nerva Telegram interface — Supermemory read + optional memory writes."""
+"""Nerva Telegram interface — Supermemory read, upload, and chat memory."""
 
 from __future__ import annotations
 
@@ -10,8 +10,11 @@ from typing import Any
 
 from app.config import GROQ_MODEL_NAME
 from app.integrations import telegram_client
+from app.services import telegram_session as session
+from app.services.file_types import is_allowed_filename, mime_for_filename
 from app.supermemory import client as sm
 from app.supermemory import mcp_client as sm_mcp
+from app.supermemory import sync as sm_sync
 
 logger = logging.getLogger("nerva.telegram")
 
@@ -20,27 +23,50 @@ _REMEMBER_PREFIX = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+_UPLOAD_INTENT = re.compile(
+    r"(?:\b(?:upload|save|store|add)\b.*\b(?:supermemory|memory|this|file|pdf|passbook|document)\b"
+    r"|\bupload\s+this\b"
+    r"|\b(?:save|store)\s+this\b)",
+    re.IGNORECASE,
+)
+
+_GREETINGS = frozenset({"/start", "start", "hi", "hey", "hello"})
+
+_HELP_TRIGGERS = frozenset({"/help", "help", "what can you do"})
+
 _FRIENDLY_FAILURE = (
     "Sorry, I couldn't retrieve that from your memory right now. "
     "Try again in a moment."
 )
 
-_DOCUMENT_NOT_IMPLEMENTED = (
-    "I can't read files or images from Telegram yet. "
-    "Send a text question like \"Tell me about Shubham\", "
-    "or add a caption to your photo or file."
+_NO_FILE_TO_UPLOAD = (
+    "I don't see a file to upload. Send the document or photo first, "
+    "then reply to that message with \"upload\", or say \"upload\" within "
+    "15 minutes of sending the file."
 )
+
+_PENDING_FILE_HINT = (
+    "Got your file ({filename}). Reply \"upload\" to save it to Supermemory, "
+    "or add a caption like \"upload my father's passbook\" on the next file."
+)
+
+
+@dataclass(frozen=True)
+class TelegramAttachment:
+    file_id: str
+    filename: str
 
 
 @dataclass(frozen=True)
 class TelegramInboundMessage:
     update_id: int | None
+    message_id: int | None
     chat_id: str
     user_id: str | None
     user_name: str | None
     text: str
-    has_document: bool
-    has_photo: bool
+    attachment: TelegramAttachment | None
+    reply_attachment: TelegramAttachment | None
 
 
 def authorized_chat_id() -> str | None:
@@ -55,6 +81,28 @@ def is_authorized_chat(chat_id: int | str | None) -> bool:
     if not allowed or chat_id is None:
         return False
     return str(chat_id).strip() == allowed
+
+
+def _attachment_from_message(message: dict[str, Any]) -> TelegramAttachment | None:
+    document = message.get("document")
+    if isinstance(document, dict) and document.get("file_id"):
+        filename = str(document.get("file_name") or "document.bin")
+        return TelegramAttachment(
+            file_id=str(document["file_id"]),
+            filename=filename,
+        )
+
+    photos = message.get("photo")
+    if isinstance(photos, list) and photos:
+        largest = photos[-1]
+        if isinstance(largest, dict) and largest.get("file_id"):
+            message_id = message.get("message_id") or 0
+            return TelegramAttachment(
+                file_id=str(largest["file_id"]),
+                filename=f"photo_{message_id}.jpg",
+            )
+
+    return None
 
 
 def parse_telegram_update(update: dict[str, Any]) -> TelegramInboundMessage | None:
@@ -76,21 +124,99 @@ def parse_telegram_update(update: dict[str, Any]) -> TelegramInboundMessage | No
     user_name = sender.get("first_name") or sender.get("username")
 
     text = (message.get("text") or message.get("caption") or "").strip()
-    has_document = bool(message.get("document"))
-    has_photo = bool(message.get("photo"))
+    attachment = _attachment_from_message(message)
+
+    reply_attachment = None
+    reply_to = message.get("reply_to_message")
+    if isinstance(reply_to, dict):
+        reply_attachment = _attachment_from_message(reply_to)
 
     return TelegramInboundMessage(
         update_id=update.get("update_id"),
+        message_id=message.get("message_id"),
         chat_id=str(chat_id),
         user_id=str(user_id) if user_id is not None else None,
         user_name=str(user_name) if user_name else None,
         text=text,
-        has_document=has_document,
-        has_photo=has_photo,
+        attachment=attachment,
+        reply_attachment=reply_attachment,
     )
 
 
-def _generate_answer(query: str, context: str) -> str:
+def is_upload_intent(text: str) -> bool:
+    return bool(_UPLOAD_INTENT.search((text or "").strip()))
+
+
+def _upload_title(text: str, filename: str) -> str:
+    cleaned = re.sub(
+        r"^\s*(?:please\s+)?(?:upload|save|store|add)\s+(?:this\s+)?(?:to\s+supermemory\s*)?",
+        "",
+        text.strip(),
+        flags=re.IGNORECASE,
+    ).strip(" .,:;-")
+    if cleaned and len(cleaned) > 2:
+        return cleaned
+    return filename
+
+
+def _resolve_upload_target(
+    message: TelegramInboundMessage,
+) -> TelegramAttachment | None:
+    if message.attachment:
+        return message.attachment
+    if message.reply_attachment:
+        return message.reply_attachment
+    pending = session.get_pending(message.chat_id)
+    if pending:
+        return TelegramAttachment(
+            file_id=pending.file_id,
+            filename=pending.filename,
+        )
+    return None
+
+
+async def _upload_attachment(
+    *,
+    chat_id: str,
+    attachment: TelegramAttachment,
+    title: str | None = None,
+) -> str:
+    if not sm.is_configured():
+        return "Supermemory is not configured on the server."
+
+    filename = attachment.filename
+    if not is_allowed_filename(filename):
+        return (
+            f"I can't upload `{filename}` yet. Supported types include PDF, "
+            "images, txt, md, docx, and csv."
+        )
+
+    file_bytes = await telegram_client.download_file(attachment.file_id)
+    if not file_bytes:
+        return "I couldn't download that file from Telegram. Please try again."
+
+    display = (title or filename).strip()
+    result = sm_sync.sync_telegram_upload(
+        file_bytes=file_bytes,
+        filename=filename,
+        title=display,
+    )
+    if not result.get("ok"):
+        logger.warning("Telegram Supermemory upload failed: %s", result.get("error"))
+        return _FRIENDLY_FAILURE
+
+    session.clear_pending(chat_id)
+    return (
+        f"Uploaded \"{display}\" to Supermemory. "
+        "Give it a minute to index, then you can ask questions about it."
+    )
+
+
+def _generate_answer(
+    query: str,
+    context: str,
+    history: list[dict[str, str]] | None = None,
+) -> str:
     from app.llm import client
 
     if not sm_mcp.has_usable_context(context):
@@ -99,16 +225,11 @@ def _generate_answer(query: str, context: str) -> str:
             "for that question."
         )
 
-    prompt = f"""You are Nerva, Shubham Pawar's personal assistant on Telegram.
-
-The user is Shubham. First-person phrases like "my project", "my work", and
-"what was I doing" refer to Shubham.
-
-Answer using ONLY the Supermemory profile and retrieved context below
-(same sources as the Nerva voice assistant).
-Do not invent facts. If the context is insufficient, say you couldn't find it.
-Keep the answer concise and natural for Telegram (about one to four short paragraphs).
-Avoid markdown headers, bullet lists, and code blocks unless truly necessary.
+    prompt = f"""Answer using ONLY the Supermemory profile and retrieved context below.
+The user is Shubham Pawar. First-person phrases refer to Shubham.
+Do not invent facts. Do not claim you uploaded, shared, or attached files.
+If the context is insufficient, say you couldn't find it.
+Keep the answer concise and natural for Telegram.
 
 Supermemory context:
 ----------------
@@ -120,17 +241,22 @@ Question:
 
 Answer:"""
 
+    messages: list[dict[str, str]] = [
+        {
+            "role": "system",
+            "content": (
+                "You are Nerva, Shubham Pawar's personal memory assistant on Telegram. "
+                "You cannot upload files in chat — the user must send files as attachments."
+            ),
+        },
+    ]
+    if history:
+        messages.extend(history[-12:])
+    messages.append({"role": "user", "content": prompt})
+
     response = client.chat.completions.create(
         model=GROQ_MODEL_NAME,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are Nerva, Shubham Pawar's personal memory assistant."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ],
+        messages=messages,
         temperature=0.2,
         max_tokens=700,
     )
@@ -170,7 +296,11 @@ def _store_memory_note(content: str) -> tuple[bool, str]:
     return True, "Got it — I'll remember that."
 
 
-def answer_from_supermemory(query: str) -> str:
+def answer_from_supermemory(
+    query: str,
+    *,
+    history: list[dict[str, str]] | None = None,
+) -> str:
     if not sm_mcp.is_configured():
         logger.warning("Telegram Supermemory MCP not configured")
         return _FRIENDLY_FAILURE
@@ -196,38 +326,80 @@ def answer_from_supermemory(query: str) -> str:
         )
 
     try:
-        return _generate_answer(query, context)
+        return _generate_answer(query, context, history=history)
     except Exception:
         logger.exception("Telegram answer generation failed")
         return _FRIENDLY_FAILURE
 
 
-def _is_unsupported_attachment(message: TelegramInboundMessage) -> bool:
-    return message.has_document or message.has_photo
-
-
 async def build_reply(message: TelegramInboundMessage) -> str:
     text = message.text.strip()
+    history = session.get_history(message.chat_id)
 
-    if _is_unsupported_attachment(message) and not text:
-        return _DOCUMENT_NOT_IMPLEMENTED
+    # --- File / photo attached to this message ---
+    if message.attachment:
+        if is_upload_intent(text):
+            title = _upload_title(text, message.attachment.filename)
+            return await _upload_attachment(
+                chat_id=message.chat_id,
+                attachment=message.attachment,
+                title=title,
+            )
 
+        session.set_pending(
+            message.chat_id,
+            session.PendingFile(
+                file_id=message.attachment.file_id,
+                filename=message.attachment.filename,
+                message_id=message.message_id,
+            ),
+        )
+
+        if text:
+            logger.info("Telegram Supermemory retrieval started (caption)")
+            return answer_from_supermemory(text, history=history)
+
+        return _PENDING_FILE_HINT.format(filename=message.attachment.filename)
+
+    # --- Text-only messages ---
     if not text:
-        return "Send me a text message and I'll search your Supermemory knowledge."
+        return "Send me a text message or a file and I'll help with Supermemory."
 
-    if text.lower() in {"/start", "start"}:
+    lowered = text.lower()
+    if lowered in _GREETINGS:
         return (
-            "Hi Shubham — I'm Nerva on Telegram. Ask about your work, projects, "
-            "or memories and I'll search your Supermemory knowledge."
+            "Hi Shubham — I'm Nerva on Telegram. Ask about your memories, "
+            "send files to upload to Supermemory, or say \"Remember this: …\" "
+            "to save a note."
+        )
+
+    if lowered in _HELP_TRIGGERS:
+        return (
+            "I can:\n"
+            "• Search your Supermemory knowledge (e.g. \"Tell me about Shubham\")\n"
+            "• Upload files — send a PDF/photo, then reply \"upload\" or use a caption\n"
+            "• Save notes — \"Remember this: …\"\n"
+            "Reply to a file message with \"upload\" for best results on Vercel."
         )
 
     remember_payload = _remember_text(text)
     if remember_payload:
         ok, reply = _store_memory_note(remember_payload)
-        return reply if ok else reply
+        return reply
+
+    if is_upload_intent(text):
+        target = _resolve_upload_target(message)
+        if not target:
+            return _NO_FILE_TO_UPLOAD
+        title = _upload_title(text, target.filename)
+        return await _upload_attachment(
+            chat_id=message.chat_id,
+            attachment=target,
+            title=title,
+        )
 
     logger.info("Telegram Supermemory retrieval started")
-    reply = answer_from_supermemory(text)
+    reply = answer_from_supermemory(text, history=history)
     logger.info("Telegram Supermemory retrieval finished")
     return reply
 
@@ -259,11 +431,19 @@ async def process_telegram_update(update: dict[str, Any]) -> dict[str, Any]:
 
     logger.info("Telegram processing started chat_id=%s", inbound.chat_id)
 
+    user_text = inbound.text.strip()
+    if not user_text and inbound.attachment:
+        user_text = f"[file: {inbound.attachment.filename}]"
+
     try:
         reply = await build_reply(inbound)
     except Exception:
         logger.exception("Telegram processing failed")
         reply = _FRIENDLY_FAILURE
+
+    if user_text:
+        session.append_history(inbound.chat_id, "user", user_text)
+    session.append_history(inbound.chat_id, "assistant", reply)
 
     ok, err = await telegram_client.send_message(
         chat_id=inbound.chat_id,
