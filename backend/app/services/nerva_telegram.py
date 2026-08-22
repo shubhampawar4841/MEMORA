@@ -26,8 +26,9 @@ _FRIENDLY_FAILURE = (
 )
 
 _DOCUMENT_NOT_IMPLEMENTED = (
-    "Document and file ingestion from Telegram isn't available yet. "
-    "Send me a text question and I'll search your Supermemory knowledge."
+    "I can't read files or images from Telegram yet. "
+    "Send a text question like \"Tell me about Shubham\", "
+    "or add a caption to your photo or file."
 )
 
 
@@ -201,11 +202,16 @@ def answer_from_supermemory(query: str) -> str:
         return _FRIENDLY_FAILURE
 
 
+def _is_unsupported_attachment(message: TelegramInboundMessage) -> bool:
+    return message.has_document or message.has_photo
+
+
 async def build_reply(message: TelegramInboundMessage) -> str:
-    if message.has_document or message.has_photo:
+    text = message.text.strip()
+
+    if _is_unsupported_attachment(message) and not text:
         return _DOCUMENT_NOT_IMPLEMENTED
 
-    text = message.text.strip()
     if not text:
         return "Send me a text message and I'll search your Supermemory knowledge."
 

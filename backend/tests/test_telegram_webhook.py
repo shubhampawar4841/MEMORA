@@ -79,7 +79,43 @@ async def test_process_document_reply(monkeypatch):
     result = await tg.process_telegram_update(update)
     assert result["ok"] is True
     assert sent
-    assert "isn't available yet" in sent[0]
+    assert "can't read files or images" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_photo_with_caption_is_answered(monkeypatch):
+    monkeypatch.setattr("app.config.TELEGRAM_CHAT_ID", "927308616")
+    monkeypatch.setattr("app.config.TELEGRAM_BOT_TOKEN", "test-token")
+
+    sent: list[str] = []
+
+    async def fake_send(*, chat_id: str, text: str):
+        sent.append(text)
+        return True, None
+
+    monkeypatch.setattr(
+        "app.services.nerva_telegram.telegram_client.send_message",
+        fake_send,
+    )
+    monkeypatch.setattr(
+        "app.services.nerva_telegram.answer_from_supermemory",
+        lambda query: f"Answer about: {query}",
+    )
+
+    update = {
+        "update_id": 14,
+        "message": {
+            "message_id": 5,
+            "from": {"id": 927308616},
+            "chat": {"id": 927308616},
+            "photo": [{"file_id": "abc", "width": 100, "height": 100}],
+            "caption": "Tell me about Shubham",
+        },
+    }
+
+    result = await tg.process_telegram_update(update)
+    assert result["ok"] is True
+    assert sent == ["Answer about: Tell me about Shubham"]
 
 
 @pytest.mark.asyncio
