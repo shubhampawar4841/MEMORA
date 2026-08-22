@@ -64,6 +64,13 @@ export type UploadResponse = {
   error?: string
 }
 
+export type BatchUploadItemResult = {
+  fileName: string
+  ok: boolean
+  response?: UploadResponse
+  error?: string
+}
+
 export type ConversationSummary = {
   id: string
   title: string
@@ -158,6 +165,53 @@ export async function uploadDocument(
     throw new Error(message)
   }
   return res.json() as Promise<UploadResponse>
+}
+
+export async function uploadDocuments(
+  files: File[],
+  options?: {
+    folder?: string
+    sourceForFile?: (file: File) => string | undefined
+    onProgress?: (completed: number, total: number, fileName: string) => void
+  },
+): Promise<BatchUploadItemResult[]> {
+  const results: BatchUploadItemResult[] = []
+  const total = files.length
+
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index]
+    options?.onProgress?.(index, total, file.name)
+
+    try {
+      const response = await uploadDocument(file, {
+        folder: options?.folder,
+        source: options?.sourceForFile?.(file),
+      })
+
+      if (response.error) {
+        results.push({
+          fileName: file.name,
+          ok: false,
+          error: response.error,
+        })
+      } else {
+        results.push({
+          fileName: file.name,
+          ok: true,
+          response,
+        })
+      }
+    } catch (err) {
+      results.push({
+        fileName: file.name,
+        ok: false,
+        error: err instanceof Error ? err.message : 'Upload failed',
+      })
+    }
+  }
+
+  options?.onProgress?.(total, total, '')
+  return results
 }
 
 /** @deprecated Use uploadDocument */
