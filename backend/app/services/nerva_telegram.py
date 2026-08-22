@@ -180,7 +180,15 @@ def answer_from_supermemory(query: str) -> str:
         logger.warning("Telegram Supermemory MCP search failed", exc_info=True)
         return _FRIENDLY_FAILURE
 
-    if not sm_mcp.has_usable_context(context):
+    usable = sm_mcp.has_usable_context(context)
+    logger.info(
+        "Telegram MCP context chars=%s usable=%s query=%r",
+        len(context),
+        usable,
+        query[:80],
+    )
+
+    if not usable:
         return (
             "I couldn't find anything relevant in your Supermemory knowledge "
             "for that question."

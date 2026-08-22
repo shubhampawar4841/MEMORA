@@ -17,6 +17,7 @@ from app.config import (
 from app.integrations import telegram_client
 from app.services import nerva_telegram
 from app.supermemory import client as sm
+from app.supermemory import mcp_client as sm_mcp
 
 logger = logging.getLogger("nerva.telegram.api")
 
@@ -69,6 +70,8 @@ def telegram_status() -> dict[str, Any]:
         "telegram_bot_configured": telegram_client.telegram_configured(),
         "telegram_chat_id_configured": bool((TELEGRAM_CHAT_ID or "").strip()),
         "supermemory_configured": sm.is_configured(),
+        "retrieval_backend": "supermemory_mcp",
+        "mcp_configured": sm_mcp.is_configured(),
         "webhook_path": "/api/telegram/webhook",
         "authorized_chat_only": True,
     }
