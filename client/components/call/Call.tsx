@@ -205,8 +205,8 @@ export function Call() {
           </button>
           {backendOk === false && (
             <p className="muted call-hint">
-              Backend is not reachable at localhost:8000. Start uvicorn, then
-              refresh.
+              Backend is not reachable at {API_URL}. Check NEXT_PUBLIC_API_URL
+              and that the API is running, then refresh.
             </p>
           )}
           {backendOk && configured === false && (

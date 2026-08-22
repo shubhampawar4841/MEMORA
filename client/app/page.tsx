@@ -64,7 +64,9 @@ export default function Page() {
       })
       .catch(() => {
         setApiOk(false)
-        setApiMessage('Backend unreachable at localhost:8000')
+        setApiMessage(
+          `Backend unreachable at ${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}`,
+        )
       })
 
     void refreshDocuments()
