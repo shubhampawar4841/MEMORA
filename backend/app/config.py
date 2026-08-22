@@ -219,6 +219,15 @@ GOOGLE_MCP_CREDENTIAL_MODE = (
 
 
 # ------------------------------------------------------------
+# Telegram (Nerva text interface — Supermemory only)
+# ------------------------------------------------------------
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or None
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip() or None
+TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip() or None
+
+
+# ------------------------------------------------------------
 # CORS
 # ------------------------------------------------------------
 

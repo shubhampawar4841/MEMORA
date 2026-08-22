@@ -7,6 +7,7 @@ from app.routers import (
     health,
     memory,
     search,
+    telegram,
     voice,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "health",
     "memory",
     "search",
+    "telegram",
     "voice",
 ]

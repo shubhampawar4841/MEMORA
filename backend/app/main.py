@@ -13,6 +13,7 @@ from app.routers import (
     health,
     memory,
     search,
+    telegram,
     voice,
 )
 
@@ -86,3 +87,4 @@ app.include_router(search.router)
 app.include_router(chat.router)
 app.include_router(agent.router)
 app.include_router(voice.router)
+app.include_router(telegram.router)
