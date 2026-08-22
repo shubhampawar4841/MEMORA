@@ -141,7 +141,7 @@ def _ingest_web_supermemory(
             content=content,
             custom_id=doc_id,
             metadata=meta,
-            task_type="superrag",
+            task_type="memory",
         )
     except SupermemoryError as exc:
         return {"error": str(exc)}
