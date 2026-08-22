@@ -1,5 +1,7 @@
 # Nerva API
 
+> **Canonical project documentation:** see the [root README](../README.md) for full architecture, integration status, and setup. This file focuses on backend-specific details.
+
 PDF RAG backend for Nerva.
 
 ## Pipeline
