@@ -31,6 +31,10 @@ load_dotenv(".env.local", override=True)
 # Hardcoded MCP endpoint — used by the agent MCP toolset below.
 SUPERMEMORY_MCP_URL = "https://mcp.supermemory.ai/mcp"
 SUPERMEMORY_API_KEY = (os.getenv("SUPERMEMORY_API_KEY") or "").strip()
+FIRECRAWL_MCP_URL = (
+    os.getenv("FIRECRAWL_MCP_URL", "https://mcp.firecrawl.dev/v2/mcp").strip()
+)
+FIRECRAWL_API_KEY = (os.getenv("FIRECRAWL_API_KEY") or "").strip()
 VOICE_AGENT_NAME = "Shubham_Assistent"
 
 VOICE_INSTRUCTIONS = """You are Nerva, Shubham's personal AI assistant and daily intelligence system.
@@ -135,9 +139,10 @@ When relevant personal data is requested, retrieve it first and then answer usin
 
 class DefaultAgent(Agent):
     def __init__(self) -> None:
-        tools = []
+        tools: list[mcp.MCPToolset] = []
+
         if SUPERMEMORY_API_KEY:
-            tools = [
+            tools.append(
                 mcp.MCPToolset(
                     id="Supermemory",
                     mcp_server=mcp.MCPServerHTTP(
@@ -147,11 +152,29 @@ class DefaultAgent(Agent):
                         },
                     ),
                 ),
-            ]
+            )
         else:
             logger.warning(
                 "SUPERMEMORY_API_KEY not set — voice agent runs without "
                 "SuperMemory MCP tools"
+            )
+
+        if FIRECRAWL_API_KEY:
+            tools.append(
+                mcp.MCPToolset(
+                    id="Firecrawl",
+                    mcp_server=mcp.MCPServerHTTP(
+                        url=FIRECRAWL_MCP_URL,
+                        headers={
+                            "Authorization": f"Bearer {FIRECRAWL_API_KEY}",
+                        },
+                    ),
+                ),
+            )
+        else:
+            logger.warning(
+                "FIRECRAWL_API_KEY not set — voice agent runs without "
+                "Firecrawl MCP tools"
             )
 
         super().__init__(
